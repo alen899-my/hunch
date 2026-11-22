@@ -1,0 +1,56 @@
+# Environment files (CRITICAL: NEVER COMMIT SECRETS)
+.env
+.env*
+*.env
+*.env.*
+.env.local
+.env.development
+.env.test
+.env.production
+app/.env
+server/.env
+
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Expo & React Native
+.expo/
+*/.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native build artifacts
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+ios/
+android/
+app/ios/
+app/android/
+
+# Metro & Logs
+.metro-health-check*
+*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# Operating System files
+.DS_Store
+Thumbs.db
+*.pem
+
+# IDEs & Editors
+.vscode/
+.idea/
+
+# Local storage / uploads
+server/uploads/
+uploads/
+*.tsbuildinfo
