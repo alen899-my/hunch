@@ -1,6 +1,6 @@
 // Base URL — change to your machine IP when testing on a physical device
 // e.g. http://192.168.1.x:3000/api  (not localhost on real devices)
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000/api';
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://hunch-api-eight.vercel.app/api';
 
 type Method = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 

@@ -2,7 +2,7 @@ import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { getGlobalToken } from './api';
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://10.187.251.145:3000/api';
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://hunch-api-eight.vercel.app/api';
 
 export type UploadCategory = 'image' | 'video' | 'audio';
 
