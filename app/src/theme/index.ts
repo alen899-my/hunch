@@ -69,6 +69,7 @@ export const FontFamily = {
   light:        'Outfit_300Light',
   editorial:    'Fraunces_700Bold',
   editorialSemi:'Fraunces_600SemiBold',
+  handwriting:  'PatrickHand_400Regular',
 } as const;
 
 export const FontSize = {

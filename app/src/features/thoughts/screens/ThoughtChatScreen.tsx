@@ -13,6 +13,7 @@ import {
   RefreshControl,
   ActivityIndicator,
   Image,
+  Keyboard,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons, Feather } from '@expo/vector-icons';
@@ -23,6 +24,8 @@ import { Colors, Spacing, Radius, FontFamily, FontSize, Shadow } from '@/theme';
 import { useDayStream } from '@/hooks/use-thoughts';
 import type { Thought } from '@/services/thoughts.service';
 import { uploadToR2 } from '@/services/upload.service';
+import { playTypewriterSound } from '@/services/typewriter-sound.service';
+import { TypewriterKeyboard } from '../components/TypewriterKeyboard';
 import { CustomCameraModal, CameraResult } from '../components/CustomCameraModal';
 import { AudioRecorderModal } from '../components/AudioRecorderModal';
 import type { AudioUploadResult } from '../components/AudioRecorderModal';
@@ -68,12 +71,14 @@ export default function ThoughtChatScreen() {
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const [showCustomCamera, setShowCustomCamera] = useState(false);
   const [showAudioRecorder, setShowAudioRecorder] = useState(false);
+  const [showTypewriterKeyboard, setShowTypewriterKeyboard] = useState(false);
   const [pendingMedia, setPendingMedia] = useState<PendingMedia | null>(null);
   const [optimisticThoughts, setOptimisticThoughts] = useState<Thought[]>([]);
   const [uploadJobs, setUploadJobs] = useState<Record<string, UploadJob>>({});
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deletingIds, setDeletingIds] = useState<string[]>([]);
   const scrollViewRef = useRef<any>(null);
+  const inputRef = useRef<any>(null);
 
   // Send / Mic button bounce animation
   const actionScale = useRef(new Animated.Value(1)).current;
@@ -310,9 +315,41 @@ export default function ThoughtChatScreen() {
     startAudioUpload(tempId, result);
   };
 
+  // ── Vintage Typewriter Keyboard Handlers ────────────────────────────────
+  const handleToggleTypewriter = () => {
+    if (showTypewriterKeyboard) {
+      setShowTypewriterKeyboard(false);
+      setTimeout(() => inputRef.current?.focus(), 80);
+    } else {
+      Keyboard.dismiss();
+      setShowTypewriterKeyboard(true);
+      setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 120);
+    }
+  };
+
+  const handleTypewriterKeyPress = (char: string) => {
+    setText((prev) => prev + char);
+  };
+
+  const handleTypewriterBackspace = () => {
+    setText((prev) => prev.slice(0, -1));
+  };
+
+  const handleTypewriterSend = () => {
+    handleSend();
+  };
+
+  const handleSwitchToNativeKeyboard = () => {
+    setShowTypewriterKeyboard(false);
+    setTimeout(() => inputRef.current?.focus(), 80);
+  };
+
   // ── Text send: sent instantly to chat ────────────────────────────────────
   const handleSend = async () => {
     if (!text.trim()) return;
+
+    // Authentic carriage return bell ding on send
+    playTypewriterSound('bell');
 
     Animated.sequence([
       Animated.timing(actionScale, { toValue: 0.82, duration: 80, useNativeDriver: true }),
@@ -657,7 +694,7 @@ export default function ThoughtChatScreen() {
           ]}
         >
           <View style={styles.chatRow}>
-            {/* Left Pill: Attachment Paperclip + Text Input */}
+            {/* Left Pill: Attachment Paperclip + Typewriter Toggle + Text Input */}
             <View style={styles.inputPill}>
               <TouchableOpacity
                 onPress={() => setShowAttachmentMenu(!showAttachmentMenu)}
@@ -672,12 +709,46 @@ export default function ThoughtChatScreen() {
                 />
               </TouchableOpacity>
 
+              {/* Vintage Typewriter Keyboard Mode Toggle */}
+              <TouchableOpacity
+                onPress={handleToggleTypewriter}
+                style={[
+                  styles.typewriterToggleBtn,
+                  showTypewriterKeyboard && styles.typewriterToggleBtnActive,
+                ]}
+                hitSlop={6}
+                activeOpacity={0.75}
+              >
+                <Ionicons
+                  name="keypad-outline"
+                  size={19}
+                  color={showTypewriterKeyboard ? '#C5A059' : Colors.textSecondary}
+                />
+              </TouchableOpacity>
+
               {/* Text Input */}
               <TextInput
+                ref={inputRef}
                 placeholder="Type a thought..."
                 placeholderTextColor={Colors.textMuted}
                 value={text}
-                onChangeText={setText}
+                onChangeText={(val) => {
+                  // Authentic mechanical typewriter sounds on system keyboard too!
+                  if (val.length < text.length) {
+                    playTypewriterSound('backspace');
+                  } else if (val.endsWith(' ') && val.length > text.length) {
+                    playTypewriterSound('space');
+                  } else if (val.length > text.length) {
+                    playTypewriterSound('key');
+                  }
+                  setText(val);
+                }}
+                showSoftInputOnFocus={!showTypewriterKeyboard}
+                onFocus={() => {
+                  if (showTypewriterKeyboard) {
+                    setShowTypewriterKeyboard(false);
+                  }
+                }}
                 multiline
                 maxLength={1200}
                 style={[styles.textInput, isSmallPhone && { fontSize: FontSize.sm }]}
@@ -708,6 +779,17 @@ export default function ThoughtChatScreen() {
             </Animated.View>
           </View>
         </View>
+
+        {/* ── Vintage Typewriter Keyboard Chassis ─── */}
+        {showTypewriterKeyboard && (
+          <TypewriterKeyboard
+            onKeyPress={handleTypewriterKeyPress}
+            onBackspace={handleTypewriterBackspace}
+            onSend={handleTypewriterSend}
+            onSwitchToNative={handleSwitchToNativeKeyboard}
+            canSend={hasText}
+          />
+        )}
       </KeyboardAvoidingView>
 
       {/* ── WhatsApp-Style Media Preview Modal (Preview + Caption before sending) ── */}
@@ -1186,7 +1268,7 @@ const styles = StyleSheet.create({
   },
   thoughtBodyTextSelected: {
     color: '#FFFFFF',
-    fontFamily: FontFamily.medium,
+    fontFamily: FontFamily.handwriting,
   },
   timeTextSelected: {
     color: 'rgba(255, 255, 255, 0.9)',
@@ -1203,8 +1285,11 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
   },
   thoughtBodyText: {
-    lineHeight: 22,
-    fontSize: FontSize.md,
+    fontFamily: FontFamily.handwriting,
+    fontSize: 20,
+    lineHeight: 27,
+    color: '#26201B',
+    letterSpacing: 0.25,
   },
   readMoreRow: {
     flexDirection: 'row',
@@ -1301,6 +1386,17 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  typewriterToggleBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: Radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 2,
+  },
+  typewriterToggleBtnActive: {
+    backgroundColor: '#292420',
   },
   textInput: {
     flex: 1,

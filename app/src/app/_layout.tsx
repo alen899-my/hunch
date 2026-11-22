@@ -12,6 +12,7 @@ import {
   Fraunces_600SemiBold,
   Fraunces_700Bold,
 } from '@expo-google-fonts/fraunces';
+import { PatrickHand_400Regular } from '@expo-google-fonts/patrick-hand';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
@@ -35,6 +36,7 @@ export default function RootLayout() {
     Outfit_900Black,
     Fraunces_600SemiBold,
     Fraunces_700Bold,
+    PatrickHand_400Regular,
   });
 
   useEffect(() => {

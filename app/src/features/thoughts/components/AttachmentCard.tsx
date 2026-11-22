@@ -750,8 +750,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   captionText: {
-    fontSize: FontSize.md,
-    lineHeight: 22,
+    fontFamily: FontFamily.handwriting,
+    fontSize: 19,
+    lineHeight: 25,
+    letterSpacing: 0.2,
   },
 
   // ── Audio Spike Lines Card (NO BORDERS) ──────────────────
