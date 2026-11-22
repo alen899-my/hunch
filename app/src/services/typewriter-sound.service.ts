@@ -1,6 +1,5 @@
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
-import * as Haptics from 'expo-haptics';
-import { Platform } from 'react-native';
+import { Platform, Vibration } from 'react-native';
 
 const SOUND_KEY = require('../../assets/sounds/typewriter-key.wav');
 const SOUND_SPACE = require('../../assets/sounds/typewriter-space.wav');
@@ -52,14 +51,18 @@ export type TypewriterSoundType = 'key' | 'space' | 'backspace' | 'bell';
 export function playTypewriterSound(type: TypewriterSoundType = 'key') {
   if (isMuted) return;
 
-  // 1. Tactile mechanical haptic kick
+  // 1. Tactile mechanical haptic kick via built-in React Native Vibration
   try {
-    if (type === 'bell') {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    } else if (type === 'space') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    } else {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    if (Platform.OS !== 'web') {
+      if (type === 'bell') {
+        Vibration.vibrate([0, 40, 50, 40]);
+      } else if (type === 'space') {
+        Vibration.vibrate(18);
+      } else if (type === 'backspace') {
+        Vibration.vibrate(14);
+      } else {
+        Vibration.vibrate(8);
+      }
     }
   } catch {}
 
