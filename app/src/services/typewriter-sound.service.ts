@@ -7,19 +7,18 @@ const SOUND_BACKSPACE = require('../../assets/sounds/typewriter-backspace.wav');
 const SOUND_BELL = require('../../assets/sounds/typewriter-bell.wav');
 
 let isMuted = false;
-let isAudioModeConfigured = false;
+let isConfigured = false;
 
-// Audio player instances
+// Audio player instances pool for zero-latency concurrent playback
 let keyPlayers: AudioPlayer[] = [];
 let keyIndex = 0;
-const KEY_POOL_SIZE = 3;
+const KEY_POOL_SIZE = 4;
 
 let spacePlayer: AudioPlayer | null = null;
 let backspacePlayer: AudioPlayer | null = null;
 let bellPlayer: AudioPlayer | null = null;
 
-// Initialize players
-function initSoundPool() {
+function initPool() {
   if (keyPlayers.length > 0) return;
   try {
     for (let i = 0; i < KEY_POOL_SIZE; i++) {
@@ -28,83 +27,67 @@ function initSoundPool() {
     spacePlayer = createAudioPlayer(SOUND_SPACE);
     backspacePlayer = createAudioPlayer(SOUND_BACKSPACE);
     bellPlayer = createAudioPlayer(SOUND_BELL);
-  } catch (err) {
-    console.warn('Typewriter sound init error:', err);
-  }
-}
 
-// Ensure audio mode permits simultaneous playback
-async function ensureAudioMode() {
-  if (isAudioModeConfigured) return;
-  try {
-    await setAudioModeAsync({
+    setAudioModeAsync({
       allowsRecording: false,
       playsInSilentMode: true,
       interruptionMode: 'mixWithOthers',
-    });
-    isAudioModeConfigured = true;
-  } catch {}
+    }).catch(() => {});
+    isConfigured = true;
+  } catch (err) {
+    console.warn('Typewriter sound init:', err);
+  }
 }
+
+// Pre-initialize in idle time so first key tap has 0ms latency
+setTimeout(initPool, 100);
 
 export type TypewriterSoundType = 'key' | 'space' | 'backspace' | 'bell';
 
+/**
+ * Super lightweight, non-blocking sound trigger.
+ * Wrapped in setTimeout(..., 0) so it never blocks the React Native UI thread or typing speed.
+ * Vibration is removed from regular keystrokes to ensure 120 FPS buttery typing.
+ */
 export function playTypewriterSound(type: TypewriterSoundType = 'key') {
   if (isMuted) return;
 
-  // 1. Tactile mechanical haptic kick via built-in React Native Vibration
-  try {
-    if (Platform.OS !== 'web') {
-      if (type === 'bell') {
-        Vibration.vibrate([0, 40, 50, 40]);
-      } else if (type === 'space') {
-        Vibration.vibrate(18);
-      } else if (type === 'backspace') {
-        Vibration.vibrate(14);
-      } else {
-        Vibration.vibrate(8);
-      }
-    }
-  } catch {}
+  setTimeout(() => {
+    try {
+      if (!isConfigured) initPool();
 
-  // 2. Play mechanical audio click
-  try {
-    ensureAudioMode();
-    initSoundPool();
-
-    if (type === 'key') {
-      if (keyPlayers.length > 0) {
-        const player = keyPlayers[keyIndex];
-        keyIndex = (keyIndex + 1) % keyPlayers.length;
-        try {
+      if (type === 'key') {
+        if (keyPlayers.length > 0) {
+          const player = keyPlayers[keyIndex];
+          keyIndex = (keyIndex + 1) % keyPlayers.length;
           player.seekTo(0);
-        } catch {}
-        player.play();
-      }
-    } else if (type === 'space') {
-      if (spacePlayer) {
-        try {
+          player.play();
+        }
+      } else if (type === 'space') {
+        if (spacePlayer) {
           spacePlayer.seekTo(0);
-        } catch {}
-        spacePlayer.play();
-      }
-    } else if (type === 'backspace') {
-      if (backspacePlayer) {
-        try {
+          spacePlayer.play();
+        }
+      } else if (type === 'backspace') {
+        if (backspacePlayer) {
           backspacePlayer.seekTo(0);
-        } catch {}
-        backspacePlayer.play();
-      }
-    } else if (type === 'bell') {
-      if (bellPlayer) {
-        try {
+          backspacePlayer.play();
+        }
+      } else if (type === 'bell') {
+        if (Platform.OS !== 'web') {
+          try {
+            Vibration.vibrate(25);
+          } catch {}
+        }
+        if (bellPlayer) {
           bellPlayer.seekTo(0);
-        } catch {}
-        bellPlayer.play();
+          bellPlayer.play();
+        }
       }
+    } catch {
+      // Graceful drop if audio bridge is busy
     }
-  } catch (err) {
-    // Graceful fallback if native audio is busy
-  }
+  }, 0);
 }
 
 export function toggleTypewriterMute(): boolean {

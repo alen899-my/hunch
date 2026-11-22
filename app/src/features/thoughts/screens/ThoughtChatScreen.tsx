@@ -709,7 +709,7 @@ export default function ThoughtChatScreen() {
                 />
               </TouchableOpacity>
 
-              {/* Vintage Typewriter Keyboard Mode Toggle */}
+              {/* 3D Keyboard Mode Toggle */}
               <TouchableOpacity
                 onPress={handleToggleTypewriter}
                 style={[
@@ -722,7 +722,7 @@ export default function ThoughtChatScreen() {
                 <Ionicons
                   name="keypad-outline"
                   size={19}
-                  color={showTypewriterKeyboard ? '#C5A059' : Colors.textSecondary}
+                  color={showTypewriterKeyboard ? Colors.primary : Colors.textSecondary}
                 />
               </TouchableOpacity>
 
@@ -1363,50 +1363,54 @@ const styles = StyleSheet.create({
   },
   chatRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end', // WhatsApp style: Send/Mic button anchored at bottom
     gap: Spacing[2],
   },
   inputPill: {
     flex: 1,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end', // Anchors icons cleanly at the bottom line like WhatsApp
     backgroundColor: Colors.surface,
     borderRadius: Radius['2xl'],
     borderWidth: 1.5,
     borderColor: '#ECEAE4',
     paddingLeft: Spacing[2],
-    paddingRight: Spacing[3],
-    paddingVertical: Platform.OS === 'ios' ? 4 : 2,
+    paddingRight: Spacing[2],
+    paddingVertical: Platform.OS === 'ios' ? 4 : 3,
     minHeight: 44,
     ...Shadow.xs,
   },
   attachBtn: {
-    width: 34,
-    height: 34,
+    width: 32,
+    height: 32,
     borderRadius: Radius.full,
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: Platform.OS === 'ios' ? 2 : 1,
   },
   typewriterToggleBtn: {
-    width: 34,
-    height: 34,
+    width: 32,
+    height: 32,
     borderRadius: Radius.full,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 2,
+    marginBottom: Platform.OS === 'ios' ? 2 : 1,
   },
   typewriterToggleBtnActive: {
-    backgroundColor: '#292420',
+    backgroundColor: Colors.primaryLight, // Theme soft amber chip
   },
   textInput: {
     flex: 1,
     fontFamily: FontFamily.regular,
     fontSize: FontSize.md,
     color: Colors.text,
-    maxHeight: 100,
-    minHeight: 38,
+    maxHeight: 110,
+    minHeight: 34,
     paddingHorizontal: Spacing[2],
-    paddingVertical: 4,
+    paddingTop: Platform.OS === 'ios' ? 6 : 4,
+    paddingBottom: Platform.OS === 'ios' ? 6 : 4,
+    textAlignVertical: 'center', // Strict single-line stability, WhatsApp feel
   },
 
   // ── Right Circle Action: Mic or Send ───────────────

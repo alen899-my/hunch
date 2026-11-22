@@ -1,22 +1,37 @@
 {
   "expo": {
-    "name": "app",
-    "slug": "app",
+    "name": "Hunch",
+    "slug": "hunch",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "app",
+    "scheme": "hunch",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "supportsTablet": true,
+      "bundleIdentifier": "com.hunch.app",
+      "icon": "./assets/expo.icon",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow Hunch to access your camera to capture photos and videos for your thoughts.",
+        "NSMicrophoneUsageDescription": "Allow Hunch to access your microphone for voice notes.",
+        "NSPhotoLibraryUsageDescription": "Allow Hunch to access your photos to attach them to your thoughts."
+      }
     },
     "android": {
+      "package": "com.hunch.app",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#FAF8F5",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
       "predictiveBackGestureEnabled": false
     },
     "web": {
@@ -28,9 +43,29 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#FAF8F5",
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Hunch to access your camera to capture photos and videos for your thoughts.",
+          "microphonePermission": "Allow Hunch to access your microphone for voice notes."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Hunch to access your photos to attach them to your thoughts.",
+          "savePhotosPermission": "Allow Hunch to save photos to your library."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Hunch to access your photos to attach them to your thoughts."
         }
       ],
       "expo-video",
@@ -39,6 +74,11 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "0e21c852-a68d-4768-9fbd-9927514ebb52"
+      }
     }
   }
 }

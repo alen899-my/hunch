@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -33,39 +33,39 @@ const NUM_ROW_1 = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
 const NUM_ROW_2 = ['@', '#', '$', '%', '&', '*', '-', '+', '(', ')'];
 const NUM_ROW_3 = ['!', '"', "'", ':', ';', '/', '?'];
 
-// ── Circular Vintage Typewriter Keycap ────────────────────────────────────────
-function TypewriterKey({
+// ── Memoized 3D Tactile Keycap Component ─────────────────────────────────────
+interface KeyCapProps {
+  label: string;
+  isShifted?: boolean;
+  onPress: (char: string) => void;
+  width?: number;
+}
+
+const KeyCap = React.memo(function KeyCap({
   label,
   isShifted,
   onPress,
   width,
-}: {
-  label: string;
-  isShifted?: boolean;
-  onPress: () => void;
-  width?: number;
-}) {
+}: KeyCapProps) {
   const displayChar = isShifted ? label.toUpperCase() : label.toLowerCase();
 
-  const handlePress = () => {
+  const handlePress = useCallback(() => {
     playTypewriterSound('key');
-    onPress();
-  };
+    onPress(displayChar);
+  }, [onPress, displayChar]);
 
   return (
     <TouchableOpacity
       activeOpacity={0.7}
       onPress={handlePress}
-      style={[styles.keyOuter, width ? { width } : null]}
+      style={[styles.keyBase, width ? { width } : null]}
     >
-      <View style={styles.keyRim}>
-        <View style={styles.keyCenter}>
-          <AppText style={styles.keyText}>{displayChar}</AppText>
-        </View>
+      <View style={styles.keyCap3D}>
+        <AppText style={styles.keyText}>{displayChar}</AppText>
       </View>
     </TouchableOpacity>
   );
-}
+});
 
 export function TypewriterKeyboard({
   onKeyPress,
@@ -78,32 +78,44 @@ export function TypewriterKeyboard({
   const [isSymbolMode, setIsSymbolMode] = useState(false);
   const [muted, setMuted] = useState(isTypewriterMuted());
 
-  const handleChar = (char: string) => {
-    const output = isShifted ? char.toUpperCase() : char.toLowerCase();
-    onKeyPress(output);
-    if (isShifted) setIsShifted(false); // standard typewriter shift behavior
-  };
+  const handleChar = useCallback(
+    (char: string) => {
+      onKeyPress(char);
+      if (isShifted) setIsShifted(false);
+    },
+    [onKeyPress, isShifted]
+  );
 
-  const handleSpace = () => {
+  const handleSpace = useCallback(() => {
     playTypewriterSound('space');
     onKeyPress(' ');
-  };
+  }, [onKeyPress]);
 
-  const handleBackspace = () => {
+  const handleBackspacePress = useCallback(() => {
     playTypewriterSound('backspace');
     onBackspace();
-  };
+  }, [onBackspace]);
 
-  const handleSendPress = () => {
+  const handleSendPress = useCallback(() => {
     if (!canSend) return;
     playTypewriterSound('bell');
     onSend();
-  };
+  }, [canSend, onSend]);
 
-  const handleToggleSound = () => {
+  const handleToggleSound = useCallback(() => {
     const nowMuted = toggleTypewriterMute();
     setMuted(nowMuted);
-  };
+  }, []);
+
+  const handleShiftToggle = useCallback(() => {
+    playTypewriterSound('key');
+    setIsShifted((prev) => !prev);
+  }, []);
+
+  const handleModeToggle = useCallback(() => {
+    playTypewriterSound('key');
+    setIsSymbolMode((prev) => !prev);
+  }, []);
 
   const currentRow1 = isSymbolMode ? NUM_ROW_1 : ROW_1;
   const currentRow2 = isSymbolMode ? NUM_ROW_2 : ROW_2;
@@ -111,39 +123,49 @@ export function TypewriterKeyboard({
 
   return (
     <View style={styles.keyboardContainer}>
-      {/* ── Top Carriage Plaque & Controls ── */}
+      {/* ── Minimalist Top Controls (Theme Based, Non-AI) ── */}
       <View style={styles.topBar}>
-        <View style={styles.brandBadge}>
-          <Ionicons name="hardware-chip-outline" size={13} color="#C5A059" style={{ marginRight: 4 }} />
-          <AppText style={styles.brandTitle}>HUNCH № 5</AppText>
-        </View>
+        <TouchableOpacity
+          onPress={handleToggleSound}
+          style={styles.topPillBtn}
+          activeOpacity={0.75}
+          hitSlop={8}
+        >
+          <Ionicons
+            name={muted ? 'volume-mute' : 'volume-high'}
+            size={16}
+            color={muted ? Colors.textMuted : Colors.primary}
+            style={{ marginRight: 5 }}
+          />
+          <AppText style={styles.topPillText}>
+            {muted ? 'Sound Off' : 'Sound On'}
+          </AppText>
+        </TouchableOpacity>
 
-        <View style={styles.topActionsRow}>
-          {/* Mute/Sound toggle */}
-          <TouchableOpacity onPress={handleToggleSound} style={styles.topIconBtn} hitSlop={8}>
-            <Ionicons
-              name={muted ? 'volume-mute-outline' : 'volume-high-outline'}
-              size={18}
-              color={muted ? '#888075' : '#C5A059'}
-            />
-          </TouchableOpacity>
-
-          {/* Switch to device native keyboard */}
-          <TouchableOpacity onPress={onSwitchToNative} style={styles.topPillBtn} hitSlop={8}>
-            <Ionicons name="keypad-outline" size={15} color="#DCD4C7" style={{ marginRight: 4 }} />
-            <AppText style={styles.topPillText}>System</AppText>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          onPress={onSwitchToNative}
+          style={styles.topPillBtn}
+          activeOpacity={0.75}
+          hitSlop={8}
+        >
+          <Ionicons
+            name="phone-portrait-outline"
+            size={14}
+            color={Colors.textSecondary}
+            style={{ marginRight: 5 }}
+          />
+          <AppText style={styles.topPillText}>System Keyboard</AppText>
+        </TouchableOpacity>
       </View>
 
       {/* ── Row 1 ── */}
       <View style={styles.row}>
         {currentRow1.map((char) => (
-          <TypewriterKey
+          <KeyCap
             key={char}
             label={char}
             isShifted={isShifted && !isSymbolMode}
-            onPress={() => handleChar(char)}
+            onPress={handleChar}
           />
         ))}
       </View>
@@ -151,121 +173,108 @@ export function TypewriterKeyboard({
       {/* ── Row 2 ── */}
       <View style={styles.row}>
         {currentRow2.map((char) => (
-          <TypewriterKey
+          <KeyCap
             key={char}
             label={char}
             isShifted={isShifted && !isSymbolMode}
-            onPress={() => handleChar(char)}
+            onPress={handleChar}
           />
         ))}
       </View>
 
-      {/* ── Row 3: Shift / Symbols, Letters, Backspace ── */}
+      {/* ── Row 3: Shift, Letters, Backspace ── */}
       <View style={styles.row}>
-        {/* Shift Key */}
+        {/* 3D Shift Key */}
         <TouchableOpacity
-          onPress={() => {
-            playTypewriterSound('key');
-            setIsShifted(!isShifted);
-          }}
+          onPress={handleShiftToggle}
           activeOpacity={0.7}
-          style={[styles.keyOuter, styles.specialKey, isShifted && styles.shiftActive]}
+          style={[styles.keyBase, styles.actionKey]}
         >
-          <View style={styles.keyRim}>
-            <View style={[styles.keyCenter, isShifted && { backgroundColor: Colors.primary }]}>
-              <Ionicons
-                name="arrow-up"
-                size={17}
-                color={isShifted ? '#FFFFFF' : '#D8D2C5'}
-              />
-            </View>
+          <View
+            style={[
+              styles.actionKeyCap3D,
+              isShifted && styles.shiftActiveCap3D,
+            ]}
+          >
+            <Ionicons
+              name={isShifted ? 'arrow-up' : 'arrow-up-outline'}
+              size={18}
+              color={isShifted ? '#FFFFFF' : '#38342E'}
+            />
           </View>
         </TouchableOpacity>
 
         {currentRow3.map((char) => (
-          <TypewriterKey
+          <KeyCap
             key={char}
             label={char}
             isShifted={isShifted && !isSymbolMode}
-            onPress={() => handleChar(char)}
+            onPress={handleChar}
           />
         ))}
 
-        {/* Backspace Key */}
+        {/* 3D Backspace Key */}
         <TouchableOpacity
-          onPress={handleBackspace}
+          onPress={handleBackspacePress}
           activeOpacity={0.7}
-          style={[styles.keyOuter, styles.specialKey]}
+          style={[styles.keyBase, styles.actionKey]}
         >
-          <View style={styles.keyRim}>
-            <View style={styles.keyCenter}>
-              <Feather name="delete" size={16} color="#D8D2C5" />
-            </View>
+          <View style={styles.actionKeyCap3D}>
+            <Feather name="delete" size={17} color="#38342E" />
           </View>
         </TouchableOpacity>
       </View>
 
-      {/* ── Row 4: 123 Switch, Spacebar, Punctuation, Carriage Return Send ── */}
+      {/* ── Row 4: 123 Switch, Comma, 3D Spacebar, Dot, 3D Amber Send Key ── */}
       <View style={styles.row}>
         {/* Numbers / Letters Mode Switcher */}
         <TouchableOpacity
-          onPress={() => {
-            playTypewriterSound('key');
-            setIsSymbolMode(!isSymbolMode);
-          }}
+          onPress={handleModeToggle}
           activeOpacity={0.7}
-          style={[styles.keyOuter, styles.modeKey]}
+          style={[styles.keyBase, styles.modeKey]}
         >
-          <View style={styles.keyRim}>
-            <View style={styles.keyCenter}>
-              <AppText style={styles.modeKeyText}>
-                {isSymbolMode ? 'ABC' : '?123'}
-              </AppText>
-            </View>
-          </View>
-        </TouchableOpacity>
-
-        {/* Period Key */}
-        <TypewriterKey label="." onPress={() => handleChar('.')} />
-
-        {/* Spacebar: Vintage Wooden/Metal Platen Bar */}
-        <TouchableOpacity
-          activeOpacity={0.75}
-          onPress={handleSpace}
-          style={styles.spacebarOuter}
-        >
-          <View style={styles.spacebarInner}>
-            <View style={styles.spacebarDecoLine} />
+          <View style={styles.actionKeyCap3D}>
+            <AppText style={styles.modeKeyText}>
+              {isSymbolMode ? 'ABC' : '?123'}
+            </AppText>
           </View>
         </TouchableOpacity>
 
         {/* Comma Key */}
-        <TypewriterKey label="," onPress={() => handleChar(',')} />
+        <KeyCap label="," onPress={handleChar} width={KEY_W} />
 
-        {/* Vintage Carriage Return / Send Key */}
+        {/* 3D Spacebar (Theme Cream/White) */}
+        <TouchableOpacity
+          activeOpacity={0.75}
+          onPress={handleSpace}
+          style={styles.spacebarBase}
+        >
+          <View style={styles.spacebarCap3D}>
+            <AppText style={styles.spacebarText}>space</AppText>
+          </View>
+        </TouchableOpacity>
+
+        {/* Dot Key */}
+        <KeyCap label="." onPress={handleChar} width={KEY_W} />
+
+        {/* 3D Amber Return / Send Key */}
         <TouchableOpacity
           onPress={handleSendPress}
           activeOpacity={0.8}
           disabled={!canSend}
-          style={[
-            styles.keyOuter,
-            styles.returnKey,
-            !canSend && styles.returnKeyDisabled,
-          ]}
+          style={[styles.keyBase, styles.returnKey]}
         >
-          <View style={[styles.keyRim, { borderColor: canSend ? '#E09518' : '#3E3730' }]}>
-            <View
-              style={[
-                styles.keyCenter,
-                { backgroundColor: canSend ? Colors.primary : '#2B2622' },
-              ]}
-            >
-              <Ionicons
-                name="return-down-back"
-                size={18}
-                color={canSend ? '#FFFFFF' : '#6A635B'}
-              />
-            </View>
+          <View
+            style={[
+              styles.returnKeyCap3D,
+              !canSend && styles.returnKeyCapDisabled,
+            ]}
+          >
+            <Ionicons
+              name="return-down-back"
+              size={20}
+              color={canSend ? '#FFFFFF' : '#8C867C'}
+            />
           </View>
         </TouchableOpacity>
       </View>
@@ -273,163 +282,173 @@ export function TypewriterKeyboard({
   );
 }
 
-const KEY_W = Math.floor((SCREEN_W - 32) / 10) - 2;
+// Keycap width dynamically calculated to fit 10 keys per row cleanly
+const KEY_W = Math.floor((SCREEN_W - 24) / 10) - 3;
 
 const styles = StyleSheet.create({
   keyboardContainer: {
-    backgroundColor: '#1E1B18', // Deep antique typewriter cast iron body
-    borderTopWidth: 2,
-    borderTopColor: '#36302A',
-    paddingTop: Spacing[2],
-    paddingBottom: Platform.OS === 'ios' ? 24 : Spacing[4],
-    paddingHorizontal: 8,
+    backgroundColor: '#EBE7E0', // Soft tactile warm stone plate matching Hunch theme
+    borderTopWidth: 1,
+    borderTopColor: '#DDD7CD',
+    paddingTop: 8,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 12,
+    paddingHorizontal: 6,
     gap: 7,
   },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     paddingBottom: 4,
-  },
-  brandBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#292420',
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    borderColor: '#4A4137',
-  },
-  brandTitle: {
-    fontFamily: FontFamily.editorial,
-    fontSize: FontSize.xs,
-    color: '#C5A059', // Antique stamped brass gold
-    letterSpacing: 1.2,
-  },
-  topActionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  topIconBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#292420',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#3D362E',
   },
   topPillBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#292420',
-    paddingHorizontal: 10,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
     paddingVertical: 5,
     borderRadius: Radius.full,
     borderWidth: 1,
-    borderColor: '#3D362E',
+    borderColor: '#DFD9CE',
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 2,
   },
   topPillText: {
-    color: '#DCD4C7',
+    color: Colors.textSecondary,
     fontFamily: FontFamily.medium,
-    fontSize: FontSize.xs,
+    fontSize: 12,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3.5,
+    gap: 4,
   },
 
-  // ── Circular Vintage Mechanical Keycap ───
-  keyOuter: {
+  // ── 3D Mechanical Keycap Geometry ───
+  keyBase: {
     width: KEY_W,
     height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  keyRim: {
+  keyCap3D: {
     width: '100%',
     height: '100%',
-    borderRadius: 22,
-    backgroundColor: '#191715',
-    borderWidth: 1.5,
-    borderColor: '#52493F', // Polished vintage metal rim
+    borderRadius: 7,
+    backgroundColor: '#FFFFFF', // Crisp clean keycap surface
+    borderWidth: 1,
+    borderColor: '#E2DDD4',
+    borderBottomWidth: 3.5, // 3D Bottom Lip / Drop Bevel
+    borderBottomColor: '#C8C2B5',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.35,
-    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 1,
     elevation: 2,
   },
-  keyCenter: {
-    width: '84%',
-    height: '84%',
-    borderRadius: 20,
-    backgroundColor: '#2B2622', // Dark baked enamel key center
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   keyText: {
-    fontFamily: FontFamily.editorial,
-    fontSize: 15,
-    color: '#EDE6DA', // Stamped warm ivory
+    fontFamily: FontFamily.semiBold,
+    fontSize: 18,
+    color: '#1A1A1A',
   },
 
-  specialKey: {
-    width: KEY_W * 1.35,
+  // ── Action Keys (Shift, Backspace, 123) ───
+  actionKey: {
+    width: Math.floor(KEY_W * 1.35),
   },
-  shiftActive: {
-    transform: [{ scale: 0.96 }],
+  actionKeyCap3D: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 7,
+    backgroundColor: '#DDD8CE', // Tactile subtle grey-stone
+    borderWidth: 1,
+    borderColor: '#CAC4B6',
+    borderBottomWidth: 3.5, // 3D Drop Edge
+    borderBottomColor: '#B6AF9F',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+    elevation: 2,
   },
+  shiftActiveCap3D: {
+    backgroundColor: Colors.primary,
+    borderColor: '#E09518',
+    borderBottomColor: '#C47D10',
+  },
+
+  // ── Mode Key (?123) ───
   modeKey: {
-    width: KEY_W * 1.3,
+    width: Math.floor(KEY_W * 1.3),
   },
   modeKeyText: {
     fontFamily: FontFamily.bold,
-    fontSize: 11,
-    color: '#C5A059',
+    fontSize: 12,
+    color: '#38342E',
   },
 
-  // ── Wide Vintage Spacebar ───
-  spacebarOuter: {
+  // ── 3D Spacebar ───
+  spacebarBase: {
     flex: 1,
     height: 44,
-    marginHorizontal: 3,
-    alignItems: 'center',
-    justifyContent: 'center',
+    marginHorizontal: 2,
   },
-  spacebarInner: {
+  spacebarCap3D: {
     width: '100%',
     height: '100%',
-    borderRadius: Radius.lg,
-    backgroundColor: '#25201C',
-    borderWidth: 1.5,
-    borderColor: '#52493F',
+    borderRadius: 7,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2DDD4',
+    borderBottomWidth: 3.5,
+    borderBottomColor: '#C8C2B5',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.35,
-    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 1,
     elevation: 2,
   },
-  spacebarDecoLine: {
-    width: 48,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: '#52493F',
+  spacebarText: {
+    fontFamily: FontFamily.medium,
+    fontSize: 12,
+    color: '#A8A49C',
   },
 
+  // ── 3D Amber Return / Send Key ───
   returnKey: {
-    width: KEY_W * 1.35,
+    width: Math.floor(KEY_W * 1.35),
   },
-  returnKeyDisabled: {
-    opacity: 0.5,
+  returnKeyCap3D: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 7,
+    backgroundColor: Colors.primary, // Hunch Amber CTA!
+    borderWidth: 1,
+    borderColor: '#DE8E13',
+    borderBottomWidth: 3.5, // 3D Drop Edge
+    borderBottomColor: '#C27C0E',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 2,
+    elevation: 3,
+  },
+  returnKeyCapDisabled: {
+    backgroundColor: '#DDD8CE',
+    borderColor: '#CAC4B6',
+    borderBottomColor: '#B6AF9F',
+    shadowOpacity: 0,
+    elevation: 1,
   },
 });
