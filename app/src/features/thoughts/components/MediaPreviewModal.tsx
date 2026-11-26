@@ -6,15 +6,25 @@ import {
   TouchableOpacity,
   StyleSheet,
   KeyboardAvoidingView,
+  ScrollView,
   Platform,
   Pressable,
   Dimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { AppText } from '@/components/ui';
 import { Colors, Spacing, Radius, FontFamily, FontSize, Shadow } from '@/theme';
+import { getSafeBottomPadding } from '@/utils/safe-area';
+import type { Person } from '@/services/people.service';
+import { MentionSuggestionsBox } from '@/features/people/components/MentionSuggestionsBox';
+import {
+  getActiveMentionTrigger,
+  filterPeopleForMention,
+  insertMentionAtTrigger,
+} from '@/features/people/utils/mentions';
 
 export interface PendingMedia {
   uri: string;
@@ -28,8 +38,9 @@ export interface PendingMedia {
 interface MediaPreviewModalProps {
   visible: boolean;
   media: PendingMedia | null;
+  people?: Person[];
   onClose: () => void;
-  onSend: (media: PendingMedia, caption: string) => void;
+  onSend: (media: PendingMedia, caption: string, mentionedPersonIds?: string[]) => void;
 }
 
 // ── Inline Video Preview with dynamic content height ──────────────────────────
@@ -54,21 +65,53 @@ function VideoPreview({ uri, height }: { uri: string; height: number }) {
 export function MediaPreviewModal({
   visible,
   media,
+  people = [],
   onClose,
   onSend,
 }: MediaPreviewModalProps) {
+  const insets = useSafeAreaInsets();
   const [caption, setCaption] = useState('');
+  const [cursorIndex, setCursorIndex] = useState(0);
+  const [dismissedAtIndex, setDismissedAtIndex] = useState<number | null>(null);
+  const [selectedMentionIds, setSelectedMentionIds] = useState<string[]>([]);
 
   if (!visible || !media) return null;
 
+  const mentionTrigger = getActiveMentionTrigger(caption, cursorIndex);
+  const filteredPeople = mentionTrigger
+    ? filterPeopleForMention(people, mentionTrigger.query)
+    : [];
+  const showMentionPopup = Boolean(
+    people.length > 0 &&
+      mentionTrigger &&
+      mentionTrigger.startIndex !== dismissedAtIndex &&
+      (filteredPeople.length > 0 || !mentionTrigger.query.includes(' '))
+  );
+
+  const handleSelectMention = (person: Person) => {
+    if (!mentionTrigger) return;
+    const { nextText, nextCursorIndex } = insertMentionAtTrigger(caption, mentionTrigger, person);
+    setCaption(nextText);
+    setCursorIndex(nextCursorIndex);
+    setDismissedAtIndex(mentionTrigger.startIndex);
+    setSelectedMentionIds((prev) => (prev.includes(person.id) ? prev : [...prev, person.id]));
+  };
+
   const handleSend = () => {
     const finalCaption = caption.trim();
+    const ids = [...selectedMentionIds];
     setCaption('');
-    onSend(media, finalCaption);
+    setCursorIndex(0);
+    setDismissedAtIndex(null);
+    setSelectedMentionIds([]);
+    onSend(media, finalCaption, ids);
   };
 
   const handleClose = () => {
     setCaption('');
+    setCursorIndex(0);
+    setDismissedAtIndex(null);
+    setSelectedMentionIds([]);
     onClose();
   };
 
@@ -81,16 +124,25 @@ export function MediaPreviewModal({
   // Natural dynamic height clamped between 150 (landscape) and 280 (portrait)
   const mediaHeight = Math.round(Math.min(Math.max(cardW * rawAspect, 150), 280));
 
+  const safeBottom = getSafeBottomPadding(insets.bottom, 28, 60, 44);
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
+    <Modal
+      visible={visible}
+      transparent
+      statusBarTranslucent
+      navigationBarTranslucent
+      animationType="fade"
+      onRequestClose={handleClose}
+    >
       <Pressable style={styles.backdrop} onPress={handleClose} />
 
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardAvoid}
         pointerEvents="box-none"
       >
-        <View style={styles.sheetContainer}>
+        <View style={[styles.sheetContainer, { paddingBottom: safeBottom }]}>
           {/* Top drag handle bar */}
           <View style={styles.handleBar} />
 
@@ -110,54 +162,84 @@ export function MediaPreviewModal({
             </TouchableOpacity>
           </View>
 
-          {/* Preview Card (Adjusts height dynamically to content aspect ratio) */}
-          <View style={[styles.mediaCard, { height: mediaHeight }]}>
-            {isVideo ? (
-              <VideoPreview uri={media.uri} height={mediaHeight} />
-            ) : (
-              <Image
-                source={{ uri: media.uri }}
-                style={styles.imagePreview}
-                contentFit="cover"
-                transition={150}
-              />
+          {/* Scrollable Body for small screens + keyboard */}
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.sheetScroll}
+          >
+            {/* Preview Card (Adjusts height dynamically to content aspect ratio) */}
+            <View style={[styles.mediaCard, { height: mediaHeight }]}>
+              {isVideo ? (
+                <VideoPreview uri={media.uri} height={mediaHeight} />
+              ) : (
+                <Image
+                  source={{ uri: media.uri }}
+                  style={styles.imagePreview}
+                  contentFit="cover"
+                  transition={150}
+                />
+              )}
+            </View>
+
+            {/* Mention Autocomplete for Captions */}
+            {showMentionPopup && mentionTrigger && (
+              <View style={{ marginHorizontal: -Spacing[4] }}>
+                <MentionSuggestionsBox
+                  people={filteredPeople}
+                  query={mentionTrigger.query}
+                  onSelectPerson={handleSelectMention}
+                />
+              </View>
             )}
-          </View>
 
-          {/* WhatsApp-Style Caption Input Pill */}
-          <View style={styles.captionInputPill}>
-            <Ionicons
-              name="chatbubble-ellipses-outline"
-              size={18}
-              color={Colors.textSecondary}
-              style={{ marginRight: 6 }}
-            />
-            <TextInput
-              value={caption}
-              onChangeText={setCaption}
-              placeholder="Add a caption..."
-              placeholderTextColor={Colors.textMuted}
-              multiline
-              maxLength={600}
-              style={styles.captionInput}
-            />
-          </View>
+            {/* WhatsApp-Style Caption Input Pill */}
+            <View style={styles.captionInputPill}>
+              <Ionicons
+                name="chatbubble-ellipses-outline"
+                size={18}
+                color={Colors.textSecondary}
+                style={{ marginRight: 6 }}
+              />
+              <TextInput
+                value={caption}
+                onChangeText={(val) => {
+                  setCaption(val);
+                  if (dismissedAtIndex !== null && val.length <= dismissedAtIndex) {
+                    setDismissedAtIndex(null);
+                  }
+                }}
+                onSelectionChange={(e) => {
+                  const pos = e.nativeEvent.selection.end;
+                  setCursorIndex(pos);
+                  if (dismissedAtIndex !== null && pos <= dismissedAtIndex) {
+                    setDismissedAtIndex(null);
+                  }
+                }}
+                placeholder="Add a caption (use @ to mention)..."
+                placeholderTextColor={Colors.textMuted}
+                multiline
+                maxLength={600}
+                style={styles.captionInput}
+              />
+            </View>
 
-          {/* Action Row: Discard & Send (Identical to Audio preview design) */}
-          <View style={styles.actionRow}>
-            <TouchableOpacity onPress={handleClose} style={styles.discardBtn} activeOpacity={0.8}>
-              <AppText style={styles.discardText}>Discard</AppText>
-            </TouchableOpacity>
+            {/* Action Row: Discard & Send (Identical to Audio preview design) */}
+            <View style={styles.actionRow}>
+              <TouchableOpacity onPress={handleClose} style={styles.discardBtn} activeOpacity={0.8}>
+                <AppText style={styles.discardText}>Discard</AppText>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              onPress={handleSend}
-              style={styles.sendConfirmBtn}
-              activeOpacity={0.88}
-            >
-              <Ionicons name="arrow-up" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-              <AppText style={styles.sendConfirmText}>Send</AppText>
-            </TouchableOpacity>
-          </View>
+              <TouchableOpacity
+                onPress={handleSend}
+                style={styles.sendConfirmBtn}
+                activeOpacity={0.88}
+              >
+                <Ionicons name="arrow-up" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <AppText style={styles.sendConfirmText}>Send</AppText>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -180,8 +262,13 @@ const styles = StyleSheet.create({
     paddingTop: Spacing[3],
     paddingBottom: Platform.OS === 'ios' ? 34 : Spacing[5],
     paddingHorizontal: Spacing[5],
+    maxHeight: '92%',
     gap: Spacing[3],
     ...Shadow.md,
+  },
+  sheetScroll: {
+    gap: Spacing[3],
+    paddingBottom: Spacing[1],
   },
   handleBar: {
     width: 36,

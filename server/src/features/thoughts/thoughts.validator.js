@@ -12,6 +12,14 @@ const createThoughtRules = [
   body('category')
     .optional()
     .isString(),
+  body('mentionedPersonIds')
+    .optional()
+    .isArray()
+    .withMessage('mentionedPersonIds must be an array'),
+  body('mentionedPersonIds.*')
+    .optional()
+    .isUUID()
+    .withMessage('Each mentioned person ID must be a valid UUID'),
 ];
 
 const dayParamRules = [

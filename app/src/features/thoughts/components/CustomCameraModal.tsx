@@ -18,8 +18,10 @@ import {
   useMicrophonePermissions,
 } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText } from '@/components/ui';
 import { Colors, Spacing, Radius, FontFamily, FontSize, Shadow } from '@/theme';
+import { getSafeBottomPadding, getSafeTopPadding } from '@/utils/safe-area';
 
 export interface CameraResult {
   uri: string;
@@ -38,6 +40,7 @@ interface CustomCameraProps {
 }
 
 export function CustomCameraModal({ visible, mode = 'both', onCapture, onClose }: CustomCameraProps) {
+  const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission] = useMicrophonePermissions();
   const [facing, setFacing] = useState<CameraType>('back');
@@ -155,7 +158,14 @@ export function CustomCameraModal({ visible, mode = 'both', onCapture, onClose }
 
   if (!permission?.granted) {
     return (
-      <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Modal
+        visible={visible}
+        transparent
+        statusBarTranslucent
+        navigationBarTranslucent
+        animationType="fade"
+        onRequestClose={onClose}
+      >
         <View style={styles.permissionOverlay}>
           <View style={styles.permissionCard}>
             <Ionicons name="camera-outline" size={48} color={Colors.textSecondary} />
@@ -175,8 +185,17 @@ export function CustomCameraModal({ visible, mode = 'both', onCapture, onClose }
     );
   }
 
+  const safeTop = getSafeTopPadding(insets.top, 12, 36, 54);
+  const safeBottom = getSafeBottomPadding(insets.bottom, 28, 64, 48);
+
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      statusBarTranslucent
+      navigationBarTranslucent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
       <View style={styles.cameraContainer}>
         {/* CameraView WITHOUT children to avoid native SDK crash / warning */}
         <CameraView
@@ -190,7 +209,7 @@ export function CustomCameraModal({ visible, mode = 'both', onCapture, onClose }
         {/* Controls Overlay using absolute positioning on top of CameraView */}
         <View style={styles.overlayContainer} pointerEvents="box-none">
           {/* Top Controls */}
-          <View style={styles.cameraTopBar}>
+          <View style={[styles.cameraTopBar, { paddingTop: safeTop }]}>
             <TouchableOpacity onPress={onClose} style={styles.camIconBtn} hitSlop={8}>
               <Ionicons name="close" size={26} color="#FFFFFF" />
             </TouchableOpacity>
@@ -219,7 +238,7 @@ export function CustomCameraModal({ visible, mode = 'both', onCapture, onClose }
           </View>
 
           {/* Bottom Controls */}
-          <View style={styles.cameraBottomBar}>
+          <View style={[styles.cameraBottomBar, { paddingBottom: safeBottom }]}>
             {/* Mode Switcher (only when mode==='both') */}
             {mode === 'both' && (
               <View style={styles.modeSwitcher}>

@@ -6,6 +6,7 @@ const { testConnection } = require('./db/pool');
 const authRoutes = require('./features/auth/auth.routes');
 const thoughtsRoutes = require('./features/thoughts/thoughts.routes');
 const uploadRoutes = require('./features/upload/upload.routes');
+const peopleRoutes = require('./features/people/people.routes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -18,6 +19,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/thoughts', thoughtsRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/people', peopleRoutes);
 
 // ── Health check ────────────────────────────────────────────
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));

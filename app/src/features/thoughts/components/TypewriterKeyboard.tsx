@@ -7,6 +7,7 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons, Feather } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText } from '@/components/ui';
 import { Colors, Spacing, Radius, FontFamily, FontSize } from '@/theme';
 import {
@@ -14,6 +15,7 @@ import {
   toggleTypewriterMute,
   isTypewriterMuted,
 } from '@/services/typewriter-sound.service';
+import { getSafeBottomPadding } from '@/utils/safe-area';
 
 const SCREEN_W = Dimensions.get('window').width;
 
@@ -74,6 +76,8 @@ export function TypewriterKeyboard({
   onSwitchToNative,
   canSend,
 }: TypewriterKeyboardProps) {
+  const insets = useSafeAreaInsets();
+  const safeBottom = getSafeBottomPadding(insets.bottom, 16, 48, 32);
   const [isShifted, setIsShifted] = useState(false);
   const [isSymbolMode, setIsSymbolMode] = useState(false);
   const [muted, setMuted] = useState(isTypewriterMuted());
@@ -122,7 +126,7 @@ export function TypewriterKeyboard({
   const currentRow3 = isSymbolMode ? NUM_ROW_3 : ROW_3;
 
   return (
-    <View style={styles.keyboardContainer}>
+    <View style={[styles.keyboardContainer, { paddingBottom: safeBottom }]}>
       {/* ── Minimalist Top Controls (Theme Based, Non-AI) ── */}
       <View style={styles.topBar}>
         <TouchableOpacity

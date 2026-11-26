@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   ScrollView,
@@ -15,16 +15,27 @@ import {
   Image,
   Keyboard,
 } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons, Feather } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { AppText } from '@/components/ui';
 import { Colors, Spacing, Radius, FontFamily, FontSize, Shadow } from '@/theme';
-import { useDayStream } from '@/hooks/use-thoughts';
+import { getSafeBottomPadding } from '@/utils/safe-area';
+import { useDayStream, type StreamThought } from '@/hooks/use-thoughts';
+import { usePeople, type SavePersonInput } from '@/hooks/use-people';
 import type { Thought } from '@/services/thoughts.service';
+import type { Person } from '@/services/people.service';
 import { uploadToR2 } from '@/services/upload.service';
 import { playTypewriterSound } from '@/services/typewriter-sound.service';
+import { MentionSuggestionsBox } from '@/features/people/components/MentionSuggestionsBox';
+import { MentionText } from '@/features/people/components/MentionText';
+import { AddEditPersonModal } from '@/features/people/components/AddEditPersonModal';
+import {
+  getActiveMentionTrigger,
+  filterPeopleForMention,
+  insertMentionAtTrigger,
+} from '@/features/people/utils/mentions';
 import { TypewriterKeyboard } from '../components/TypewriterKeyboard';
 import { CustomCameraModal, CameraResult } from '../components/CustomCameraModal';
 import { AudioRecorderModal } from '../components/AudioRecorderModal';
@@ -56,6 +67,7 @@ function formatTime(isoStr: string) {
 }
 
 export default function ThoughtChatScreen() {
+  const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const dayDate = typeof id === 'string' ? id : new Date().toISOString().split('T')[0];
 
@@ -66,19 +78,43 @@ export default function ThoughtChatScreen() {
 
   const { thoughts, loading, addThought, removeThought, removeThoughts, fetchThoughts } =
     useDayStream(dayDate);
+  const { people, fetchPeople, addPerson } = usePeople();
   const [text, setText] = useState('');
+  const [cursorIndex, setCursorIndex] = useState(0);
+  const [dismissedAtIndex, setDismissedAtIndex] = useState<number | null>(null);
+  const [selectedMentionIds, setSelectedMentionIds] = useState<string[]>([]);
+  const [showQuickAddPerson, setShowQuickAddPerson] = useState(false);
+  const [quickAddInitialName, setQuickAddInitialName] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const [showCustomCamera, setShowCustomCamera] = useState(false);
   const [showAudioRecorder, setShowAudioRecorder] = useState(false);
   const [showTypewriterKeyboard, setShowTypewriterKeyboard] = useState(false);
   const [pendingMedia, setPendingMedia] = useState<PendingMedia | null>(null);
-  const [optimisticThoughts, setOptimisticThoughts] = useState<Thought[]>([]);
+  const [optimisticThoughts, setOptimisticThoughts] = useState<StreamThought[]>([]);
   const [uploadJobs, setUploadJobs] = useState<Record<string, UploadJob>>({});
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deletingIds, setDeletingIds] = useState<string[]>([]);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const scrollViewRef = useRef<any>(null);
   const inputRef = useRef<any>(null);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchPeople(true);
+    }, [fetchPeople])
+  );
 
   // Send / Mic button bounce animation
   const actionScale = useRef(new Animated.Value(1)).current;
@@ -91,10 +127,12 @@ export default function ThoughtChatScreen() {
     setRefreshing(false);
   };
 
-  // Combine confirmed thoughts + optimistic chat items (instant WhatsApp feel)
-  const displayThoughts = [
+  // Combine confirmed/store thoughts + pending media uploads without duplicate keys
+  const displayThoughts: StreamThought[] = [
     ...thoughts,
-    ...optimisticThoughts.filter((opt) => !thoughts.some((t) => t.id === opt.id)),
+    ...optimisticThoughts.filter(
+      (opt) => !thoughts.some((t) => t.id === opt.id || t.clientKey === opt.id)
+    ),
   ];
 
   // ── Custom in-app camera capture: open WhatsApp-style preview with caption ─
@@ -147,7 +185,12 @@ export default function ThoughtChatScreen() {
   };
 
   // ── Background Upload Runner for Media (Photo/Video) with Live Progress ──
-  const startMediaUpload = async (tempId: string, media: PendingMedia, caption?: string) => {
+  const startMediaUpload = async (
+    tempId: string,
+    media: PendingMedia,
+    caption?: string,
+    mentionedPersonIds?: string[]
+  ) => {
     setUploadJobs((prev) => ({
       ...prev,
       [tempId]: { tempId, media, caption, status: 'uploading', progress: 5, progressText: 'Starting...' },
@@ -179,7 +222,7 @@ export default function ThoughtChatScreen() {
         duration: media.duration,
       });
 
-      const saved = await addThought(finalPayload, media.type);
+      const saved = await addThought(finalPayload, media.type, mentionedPersonIds, tempId);
       if (saved) {
         setOptimisticThoughts((prev) => prev.filter((t) => t.id !== tempId));
         setUploadJobs((prev) => {
@@ -227,7 +270,7 @@ export default function ThoughtChatScreen() {
         duration: result.duration,
       });
 
-      const saved = await addThought(finalPayload, 'audio');
+      const saved = await addThought(finalPayload, 'audio', undefined, tempId);
       if (saved) {
         setOptimisticThoughts((prev) => prev.filter((t) => t.id !== tempId));
         setUploadJobs((prev) => {
@@ -256,7 +299,11 @@ export default function ThoughtChatScreen() {
   };
 
   // ── Send media from WhatsApp preview: sent instantly to chat ────────────
-  const handleMediaPreviewSend = (media: PendingMedia, caption: string) => {
+  const handleMediaPreviewSend = (
+    media: PendingMedia,
+    caption: string,
+    mentionedPersonIds?: string[]
+  ) => {
     setPendingMedia(null);
 
     const tempId = `temp_${Date.now()}`;
@@ -283,7 +330,7 @@ export default function ThoughtChatScreen() {
     setOptimisticThoughts((prev) => [...prev, tempThought]);
     setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
 
-    startMediaUpload(tempId, media, caption);
+    startMediaUpload(tempId, media, caption, mentionedPersonIds);
   };
 
   // ── Audio recording uploaded: sent instantly to chat ─────────────────────
@@ -328,11 +375,22 @@ export default function ThoughtChatScreen() {
   };
 
   const handleTypewriterKeyPress = (char: string) => {
-    setText((prev) => prev + char);
+    setText((prev) => {
+      const next = prev + char;
+      setCursorIndex(next.length);
+      return next;
+    });
   };
 
   const handleTypewriterBackspace = () => {
-    setText((prev) => prev.slice(0, -1));
+    setText((prev) => {
+      const next = prev.slice(0, -1);
+      setCursorIndex(next.length);
+      if (dismissedAtIndex !== null && next.length <= dismissedAtIndex) {
+        setDismissedAtIndex(null);
+      }
+      return next;
+    });
   };
 
   const handleTypewriterSend = () => {
@@ -344,8 +402,51 @@ export default function ThoughtChatScreen() {
     setTimeout(() => inputRef.current?.focus(), 80);
   };
 
-  // ── Text send: sent instantly to chat ────────────────────────────────────
-  const handleSend = async () => {
+  const effectiveCursor = showTypewriterKeyboard ? text.length : cursorIndex;
+  const mentionTrigger = getActiveMentionTrigger(text, effectiveCursor);
+  const filteredMentionPeople = mentionTrigger
+    ? filterPeopleForMention(people, mentionTrigger.query)
+    : [];
+  const showMentionPopup = Boolean(
+    mentionTrigger &&
+      mentionTrigger.startIndex !== dismissedAtIndex &&
+      (filteredMentionPeople.length > 0 || !mentionTrigger.query.includes(' '))
+  );
+
+  const handleSelectMentionPerson = (person: Person) => {
+    if (!mentionTrigger) return;
+    setShowAttachmentMenu(false);
+    const { nextText, nextCursorIndex } = insertMentionAtTrigger(text, mentionTrigger, person);
+    setText(nextText);
+    setCursorIndex(nextCursorIndex);
+    setDismissedAtIndex(mentionTrigger.startIndex);
+    setSelectedMentionIds((prev) => (prev.includes(person.id) ? prev : [...prev, person.id]));
+  };
+
+  const handleOpenQuickAddPerson = (suggestedName: string) => {
+    setQuickAddInitialName(suggestedName);
+    setShowQuickAddPerson(true);
+  };
+
+  const handleQuickAddSave = async (payload: SavePersonInput) => {
+    const createdPerson = await addPerson(payload);
+    if (mentionTrigger) {
+      const { nextText, nextCursorIndex } = insertMentionAtTrigger(
+        text,
+        mentionTrigger,
+        createdPerson
+      );
+      setText(nextText);
+      setCursorIndex(nextCursorIndex);
+      setDismissedAtIndex(mentionTrigger.startIndex);
+      setSelectedMentionIds((prev) =>
+        prev.includes(createdPerson.id) ? prev : [...prev, createdPerson.id]
+      );
+    }
+  };
+
+  // ── Text send: instant 0ms chat + mentions + day list update ────────────
+  const handleSend = () => {
     if (!text.trim()) return;
 
     // Authentic carriage return bell ding on send
@@ -357,28 +458,14 @@ export default function ThoughtChatScreen() {
     ]).start();
 
     const content = text.trim();
+    const mentionIdsToSend = [...selectedMentionIds];
     setText(''); // Instant clear like WhatsApp
+    setCursorIndex(0);
+    setDismissedAtIndex(null);
+    setSelectedMentionIds([]);
 
-    const tempId = `temp_${Date.now()}`;
-    const tempThought: Thought = {
-      id: tempId,
-      user_id: '',
-      day_date: dayDate,
-      content,
-      category: 'thinking',
-      created_at: new Date().toISOString(),
-    };
-
-    setOptimisticThoughts((prev) => [...prev, tempThought]);
-    setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
-
-    try {
-      await addThought(content, 'thinking');
-    } catch {
-      Alert.alert('Could not save thought', 'Please check your connection and try again.');
-    } finally {
-      setOptimisticThoughts((prev) => prev.filter((t) => t.id !== tempId));
-    }
+    addThought(content, 'thinking', mentionIdsToSend);
+    setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 60);
   };
 
   const handleVoicePress = () => {
@@ -475,9 +562,13 @@ export default function ThoughtChatScreen() {
   };
 
   const hasText = text.trim().length > 0;
+  const chatBottomPadding =
+    keyboardVisible || showTypewriterKeyboard
+      ? Spacing[2]
+      : getSafeBottomPadding(insets.bottom, 18, 48, 32);
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       {/* ── 4. Clean Top Bar: ONLY Back, Calendar & Delete (No Today • Sat Nov text) ── */}
       <View
         style={[
@@ -597,8 +688,9 @@ export default function ThoughtChatScreen() {
             ) : (
               displayThoughts.map((t, idx) => (
                 <AnimatedThoughtCard
-                  key={t.id || idx}
+                  key={t.clientKey || t.id || idx}
                   thought={t}
+                  people={people}
                   isSelected={selectedIds.includes(t.id)}
                   isSelectionMode={isSelectionMode}
                   isDeleting={deletingIds.includes(t.id)}
@@ -606,6 +698,7 @@ export default function ThoughtChatScreen() {
                   onRetry={() => handleRetryUpload(t.id)}
                   onLongPress={() => handleLongPressThought(t.id)}
                   onToggleSelect={() => handleToggleSelectThought(t.id)}
+                  onPressMention={(person) => router.push(`/people/${person.id}` as any)}
                 />
               ))
             )}
@@ -686,10 +779,25 @@ export default function ThoughtChatScreen() {
           </View>
         )}
 
+        {/* ── @Mention Autocomplete Tray (Floating directly above input bar) ── */}
+        {showMentionPopup && mentionTrigger && (
+          <View
+            style={maxW ? { maxWidth: maxW, alignSelf: 'center', width: '100%' } : undefined}
+          >
+            <MentionSuggestionsBox
+              people={filteredMentionPeople}
+              query={mentionTrigger.query}
+              onSelectPerson={handleSelectMentionPerson}
+              onQuickAddPerson={handleOpenQuickAddPerson}
+            />
+          </View>
+        )}
+
         {/* ── Bottom Thought Bar (WhatsApp Layout) ─── */}
         <View
           style={[
             styles.bottomBarWrapper,
+            { paddingBottom: chatBottomPadding },
             maxW ? { maxWidth: maxW, alignSelf: 'center', width: '100%' } : null,
           ]}
         >
@@ -729,7 +837,7 @@ export default function ThoughtChatScreen() {
               {/* Text Input */}
               <TextInput
                 ref={inputRef}
-                placeholder="Type a thought..."
+                placeholder="Type a thought or @mention..."
                 placeholderTextColor={Colors.textMuted}
                 value={text}
                 onChangeText={(val) => {
@@ -742,6 +850,16 @@ export default function ThoughtChatScreen() {
                     playTypewriterSound('key');
                   }
                   setText(val);
+                  if (dismissedAtIndex !== null && val.length <= dismissedAtIndex) {
+                    setDismissedAtIndex(null);
+                  }
+                }}
+                onSelectionChange={(e) => {
+                  const pos = e.nativeEvent.selection.end;
+                  setCursorIndex(pos);
+                  if (dismissedAtIndex !== null && pos <= dismissedAtIndex) {
+                    setDismissedAtIndex(null);
+                  }
                 }}
                 showSoftInputOnFocus={!showTypewriterKeyboard}
                 onFocus={() => {
@@ -796,8 +914,17 @@ export default function ThoughtChatScreen() {
       <MediaPreviewModal
         visible={Boolean(pendingMedia)}
         media={pendingMedia}
+        people={people}
         onClose={() => setPendingMedia(null)}
         onSend={handleMediaPreviewSend}
+      />
+
+      {/* ── Quick Add Person Modal from Chat @Mention ── */}
+      <AddEditPersonModal
+        visible={showQuickAddPerson}
+        initialName={quickAddInitialName}
+        onClose={() => setShowQuickAddPerson(false)}
+        onSave={handleQuickAddSave}
       />
 
       {/* ── Custom In-App Camera Modal (Photo & Video) — Never device default camera ── */}
@@ -820,6 +947,7 @@ export default function ThoughtChatScreen() {
 // ── 5. Animated Thought Bubble Card (Appearing & Thanos Snap Wipe Animation) ──
 function AnimatedThoughtCard({
   thought,
+  people,
   isSelected,
   isSelectionMode,
   isDeleting,
@@ -827,8 +955,10 @@ function AnimatedThoughtCard({
   onRetry,
   onLongPress,
   onToggleSelect,
+  onPressMention,
 }: {
   thought: Thought;
+  people: Person[];
   isSelected: boolean;
   isSelectionMode: boolean;
   isDeleting: boolean;
@@ -836,6 +966,7 @@ function AnimatedThoughtCard({
   onRetry?: () => void;
   onLongPress: () => void;
   onToggleSelect: () => void;
+  onPressMention: (person: Person) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const attachmentPayload = parseAttachmentThought(thought.content);
@@ -951,6 +1082,8 @@ function AnimatedThoughtCard({
               uploadProgress={uploadJob?.progress}
               uploadProgressText={uploadJob?.progressText}
               onRetry={onRetry}
+              people={people}
+              onPressMention={isSelectionMode ? undefined : onPressMention}
             />
             <View style={styles.thoughtFooter}>
               <AppText
@@ -979,14 +1112,16 @@ function AnimatedThoughtCard({
           /* ── Standard Text Thought ── */
           <>
             {/* Content Body (Pure white when solid filled selected) */}
-            <AppText
+            <MentionText
+              text={thought.content}
+              people={people}
               variant="body"
               color={isSelected ? Colors.white : Colors.text}
               numberOfLines={expanded ? undefined : 6}
               style={[styles.thoughtBodyText, isSelected && styles.thoughtBodyTextSelected]}
-            >
-              {thought.content}
-            </AppText>
+              mentionStyle={isSelected ? styles.mentionTextSelected : undefined}
+              onPressMention={isSelectionMode ? undefined : onPressMention}
+            />
 
             {/* Read More / Read Less Toggle */}
             {isLong && (
@@ -1269,6 +1404,11 @@ const styles = StyleSheet.create({
   thoughtBodyTextSelected: {
     color: '#FFFFFF',
     fontFamily: FontFamily.handwriting,
+  },
+  mentionTextSelected: {
+    color: '#FFFFFF',
+    backgroundColor: 'rgba(0, 0, 0, 0.18)',
+    textDecorationLine: 'underline',
   },
   timeTextSelected: {
     color: 'rgba(255, 255, 255, 0.9)',

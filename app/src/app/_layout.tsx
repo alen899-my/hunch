@@ -17,6 +17,7 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { StatusBar, LogBox } from 'react-native';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { AuthProvider } from '../hooks/use-auth';
 
 LogBox.ignoreLogs([
@@ -46,17 +47,20 @@ export default function RootLayout() {
   if (!fontsLoaded) return null;
 
   return (
-    <AuthProvider>
-      <StatusBar barStyle="dark-content" />
-      <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
-        <Stack.Screen name="index" />
-        <Stack.Screen name="get-started" />
-        <Stack.Screen name="login" options={{ animation: 'slide_from_right' }} />
-        <Stack.Screen name="signup" options={{ animation: 'slide_from_right' }} />
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="thoughts/index" options={{ animation: 'slide_from_right' }} />
-        <Stack.Screen name="thoughts/[id]" options={{ animation: 'slide_from_right' }} />
-      </Stack>
-    </AuthProvider>
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+      <AuthProvider>
+        <StatusBar barStyle="dark-content" />
+        <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
+          <Stack.Screen name="index" />
+          <Stack.Screen name="get-started" />
+          <Stack.Screen name="login" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="signup" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="thoughts/index" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="thoughts/[id]" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="people/[id]" options={{ animation: 'slide_from_right' }} />
+        </Stack>
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }

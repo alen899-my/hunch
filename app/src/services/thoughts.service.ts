@@ -27,7 +27,12 @@ export const getDayThoughts = (dayDate: string, token?: string | null) =>
   apiRequest<{ dayDate: string; thoughts: Thought[] }>(`/thoughts/${dayDate}`, { token });
 
 export const createThought = (
-  data: { dayDate?: string; content: string; category?: ThoughtCategory },
+  data: {
+    dayDate?: string;
+    content: string;
+    category?: ThoughtCategory;
+    mentionedPersonIds?: string[];
+  },
   token?: string | null
 ) =>
   apiRequest<{ thought: Thought }>('/thoughts', {

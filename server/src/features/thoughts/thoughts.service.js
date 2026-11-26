@@ -1,4 +1,5 @@
 const repo = require('./thoughts.repository');
+const peopleService = require('../people/people.service');
 
 const getTodayDate = () => new Date().toISOString().split('T')[0];
 
@@ -16,7 +17,7 @@ const getDayStream = async (userId, dayDate) => {
   };
 };
 
-const addThought = async (userId, { dayDate, content, category }) => {
+const addThought = async (userId, { dayDate, content, category, mentionedPersonIds }) => {
   const date = dayDate || getTodayDate();
   const validCategory = category || 'thinking';
   const thought = await repo.createThought({
@@ -25,7 +26,16 @@ const addThought = async (userId, { dayDate, content, category }) => {
     content: content.trim(),
     category: validCategory,
   });
-  return thought;
+  const linkedPersonIds = await peopleService.linkThoughtMentions(
+    userId,
+    thought.id,
+    thought.content,
+    mentionedPersonIds
+  );
+  return {
+    ...thought,
+    mentioned_person_ids: linkedPersonIds,
+  };
 };
 
 const removeThought = async (userId, id) => {

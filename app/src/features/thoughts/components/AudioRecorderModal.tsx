@@ -10,6 +10,7 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   useAudioRecorder,
   RecordingPresets,
@@ -20,6 +21,7 @@ import {
 } from 'expo-audio';
 import { AppText } from '@/components/ui';
 import { Colors, Spacing, Radius, FontFamily, FontSize, Shadow } from '@/theme';
+import { getSafeBottomPadding } from '@/utils/safe-area';
 
 export interface AudioUploadResult {
   localUri: string;
@@ -41,6 +43,7 @@ type RecordingState = 'idle' | 'recording' | 'paused' | 'done';
 const SPIKE_BARS = [16, 26, 42, 54, 38, 22, 32, 48, 60, 44, 28, 36, 52, 40, 24, 34, 50, 36, 20];
 
 export function AudioRecorderModal({ visible, onClose, onUpload }: AudioRecorderProps) {
+  const insets = useSafeAreaInsets();
   const [state, setState] = useState<RecordingState>('idle');
   const [duration, setDuration] = useState(0);
   const [isPlayingPreview, setIsPlayingPreview] = useState(false);
@@ -273,10 +276,19 @@ export function AudioRecorderModal({ visible, onClose, onUpload }: AudioRecorder
     return `${m}:${s}`;
   };
 
+  const safeBottom = getSafeBottomPadding(insets.bottom, 28, 60, 44);
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
+    <Modal
+      visible={visible}
+      transparent
+      statusBarTranslucent
+      navigationBarTranslucent
+      animationType="fade"
+      onRequestClose={handleClose}
+    >
       <Pressable style={styles.backdrop} onPress={handleClose} />
-      <View style={styles.sheetContainer}>
+      <View style={[styles.sheetContainer, { paddingBottom: safeBottom }]}>
         <View style={styles.handleBar} />
 
         {/* Header */}

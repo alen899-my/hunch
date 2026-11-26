@@ -17,7 +17,7 @@ export default function ProfileTab() {
   };
 
   return (
-    <Screen scroll bg={Colors.background}>
+    <Screen scroll bg={Colors.background} tabScreen>
       {/* Centred layout on tablet */}
       <View style={[styles.container, isTablet && styles.containerTablet]}>
 

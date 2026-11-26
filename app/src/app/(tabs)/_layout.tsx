@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Radius, Shadow, Spacing, FontFamily, FontSize } from '@/theme';
 import { AppText } from '@/components/ui';
+import { getSafeBottomPadding } from '@/utils/safe-area';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -20,10 +21,10 @@ const TABS: {
   iconFocused: IoniconsName;
   label: string;
 }[] = [
-  { name: 'index',    icon: 'home-outline',         iconFocused: 'home',          label: 'Home'     },
-  { name: 'thoughts', icon: 'chatbubbles-outline',   iconFocused: 'chatbubbles',   label: 'Thoughts' },
-  { name: 'showcase', icon: 'color-palette-outline', iconFocused: 'color-palette', label: 'Design'   },
-  { name: 'profile',  icon: 'person-outline',        iconFocused: 'person',        label: 'Profile'  },
+  { name: 'index',    icon: 'home-outline',        iconFocused: 'home',        label: 'Home'     },
+  { name: 'thoughts', icon: 'chatbubbles-outline',  iconFocused: 'chatbubbles', label: 'Thoughts' },
+  { name: 'people',   icon: 'people-outline',       iconFocused: 'people',      label: 'People'   },
+  { name: 'profile',  icon: 'person-outline',       iconFocused: 'person',      label: 'Profile'  },
 ];
 
 // ── Floating custom tab bar ──────────────────────────────────
@@ -33,7 +34,7 @@ function FloatingTabBar(props: any) {
   const { width } = useWindowDimensions();
 
   const barWidth  = Math.min(width - Spacing[8] * 2, 400);
-  const barBottom = insets.bottom + Spacing[4];
+  const barBottom = getSafeBottomPadding(insets.bottom, Spacing[4], 44, 32);
 
   return (
     <View
@@ -95,7 +96,7 @@ export default function TabsLayout() {
   return (
     <Tabs
       tabBar={(props) => <FloatingTabBar {...props} />}
-      screenOptions={{ headerShown: false }}
+      screenOptions={{ headerShown: false, lazy: false }}
     >
       {TABS.map(({ name }) => (
         <Tabs.Screen key={name} name={name} />

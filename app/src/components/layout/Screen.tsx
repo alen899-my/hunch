@@ -10,9 +10,10 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Spacing } from '@/theme';
+import { getSafeBottomPadding } from '@/utils/safe-area';
 
-// Height of the floating tab bar + its bottom margin — screens must pad this
-const FLOATING_TAB_H = 80;
+// Height of the floating tab bar — screens must pad this + safe bottom inset
+const FLOATING_TAB_H = 88;
 
 interface ScreenProps {
   children?: React.ReactNode;
@@ -37,7 +38,8 @@ export function Screen({
   tabScreen = false,
 }: ScreenProps) {
   const insets    = useSafeAreaInsets();
-  const extraPad  = tabScreen ? FLOATING_TAB_H + insets.bottom : 0;
+  const safeBottom = getSafeBottomPadding(insets.bottom, Spacing[4], 44, 32);
+  const extraPad  = tabScreen ? FLOATING_TAB_H + safeBottom : safeBottom;
 
   const inner = scroll ? (
     <KeyboardAvoidingView
@@ -75,7 +77,7 @@ export function Screen({
   );
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: bg }, style]}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: bg }, style]} edges={['top']}>
       <StatusBar barStyle="dark-content" />
       {inner}
     </SafeAreaView>

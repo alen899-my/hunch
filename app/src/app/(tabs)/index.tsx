@@ -8,11 +8,12 @@ import {
   FlatList,
 } from 'react-native';
 import { router } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { AppText, Avatar, Badge, Card } from '@/components/ui';
 import { Colors, Spacing, Radius, Shadow, FontFamily } from '@/theme';
 import { useAuth } from '@/hooks/use-auth';
+import { getSafeBottomPadding } from '@/utils/safe-area';
 
 // ── Helpers ─────────────────────────────────────────────────
 const DAYS   = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -97,6 +98,7 @@ function MoodBar({ label, pct, color }: { label: string; pct: number; color: str
 
 // ── Screen ───────────────────────────────────────────────────
 export default function HomeTab() {
+  const insets       = useSafeAreaInsets();
   const { width }    = useWindowDimensions();
   const { user }     = useAuth();
   const isTablet     = width >= 600;
@@ -241,7 +243,7 @@ export default function HomeTab() {
         />
 
         {/* Space for floating tab bar */}
-        <View style={{ height: 100 }} />
+        <View style={{ height: getSafeBottomPadding(insets.bottom, 108, 136, 124) }} />
       </ScrollView>
     </SafeAreaView>
   );

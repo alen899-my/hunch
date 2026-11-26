@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   ScrollView,
@@ -8,14 +8,15 @@ import {
   RefreshControl,
   Image,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Ionicons, Feather } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText } from '@/components/ui';
 import { Colors, Spacing, Radius, FontFamily, FontSize, Shadow } from '@/theme';
 import { useThoughts } from '@/hooks/use-thoughts';
 import type { DaySummary } from '@/services/thoughts.service';
 import { formatAttachmentPreview } from '../components/AttachmentCard';
+import { getSafeBottomPadding } from '@/utils/safe-area';
 
 function formatPreview(content: string): string {
   if (!content) return '';
@@ -49,12 +50,19 @@ function formatTime(isoStr: string) {
 }
 
 export default function ThoughtsListScreen() {
+  const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isTablet = width >= TABLET;
   const isSmallPhone = width < 370;
 
   const { days, loading, fetchDays } = useThoughts();
   const [refreshing, setRefreshing] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchDays(true);
+    }, [fetchDays])
+  );
   const maxW = isTablet ? 600 : undefined;
   const todayStr = new Date().toISOString().split('T')[0];
   const todayDetails = formatDayDetails(todayStr);
@@ -149,7 +157,7 @@ export default function ThoughtsListScreen() {
         )}
 
         {/* Tab bar bottom offset */}
-        <View style={{ height: 110 }} />
+        <View style={{ height: getSafeBottomPadding(insets.bottom, 108, 136, 124) }} />
       </ScrollView>
     </SafeAreaView>
   );

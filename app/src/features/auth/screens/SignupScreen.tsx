@@ -10,14 +10,16 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons, AntDesign } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText, Button, Divider, Input } from '@/components/ui';
 import { Colors, Spacing, FontSize } from '@/theme';
 import { useAuth } from '@/hooks/use-auth';
+import { getSafeBottomPadding } from '@/utils/safe-area';
 
 const TABLET = 600;
 
 export default function SignupScreen() {
+  const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isTablet = width >= TABLET;
 
@@ -53,8 +55,10 @@ export default function SignupScreen() {
     }
   };
 
+  const safeBottom = getSafeBottomPadding(insets.bottom, Spacing[8], 60, 44);
+
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -64,6 +68,7 @@ export default function SignupScreen() {
           contentContainerStyle={[
             styles.scroll,
             isTablet && styles.scrollTablet,
+            { paddingBottom: safeBottom },
           ]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"

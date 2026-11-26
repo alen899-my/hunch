@@ -7,15 +7,17 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { router } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppText, Button } from '@/components/ui';
 import { Colors, Spacing, FontSize, FontFamily, Shadow } from '@/theme';
 import { useAuth } from '@/hooks/use-auth';
+import { getSafeBottomPadding } from '@/utils/safe-area';
 
 const TABLET = 600;
 
 export default function GetStartedScreen() {
+  const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isTablet = width >= TABLET;
   const { isAuthenticated } = useAuth();
@@ -29,6 +31,7 @@ export default function GetStartedScreen() {
 
   const contentMaxWidth = isTablet ? 460 : undefined;
   const horizontalPadding = isTablet ? Spacing[8] : Spacing[6];
+  const safeBottom = getSafeBottomPadding(insets.bottom, Spacing[6], 56, 42);
 
   return (
     <View style={styles.container}>
@@ -52,11 +55,11 @@ export default function GetStartedScreen() {
       />
 
       {/* Content directly over the image */}
-      <SafeAreaView style={styles.safe} edges={['bottom']}>
+      <View style={styles.safe}>
         <View
           style={[
             styles.contentWrapper,
-            { paddingHorizontal: horizontalPadding },
+            { paddingHorizontal: horizontalPadding, paddingBottom: safeBottom },
             contentMaxWidth ? { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' } : null,
           ]}
         >
@@ -94,7 +97,7 @@ export default function GetStartedScreen() {
             </TouchableOpacity>
           </View>
         </View>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }

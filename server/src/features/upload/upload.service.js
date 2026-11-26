@@ -151,7 +151,7 @@ async function uploadBuffer(userId, mimeType, buffer, reqHost = '') {
 
     const publicUrl = PUBLIC_URL_BASE
       ? `${PUBLIC_URL_BASE}/${key}`
-      : `${reqHost || 'http://10.187.251.145:3000'}/api/upload/raw/${key}`;
+      : `${reqHost || 'http://10.62.124.145:3000'}/api/upload/raw/${key}`;
 
     return { key, publicUrl, category, mimeType, size: buffer.length };
   } else {
@@ -161,7 +161,7 @@ async function uploadBuffer(userId, mimeType, buffer, reqHost = '') {
     const localPath = path.join(__dirname, '../../../uploads', key);
     fs.writeFileSync(localPath, buffer);
 
-    const publicUrl = `${reqHost || 'http://10.187.251.145:3000'}/api/upload/raw/${key}`;
+    const publicUrl = `${reqHost || 'http://10.62.124.145:3000'}/api/upload/raw/${key}`;
     return { key, publicUrl, category, mimeType, size: buffer.length, localFallback: true };
   }
 }

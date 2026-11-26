@@ -9,7 +9,7 @@ import {
   Pressable,
   ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -21,6 +21,9 @@ import {
 } from 'expo-audio';
 import { AppText } from '@/components/ui';
 import { Colors, Spacing, Radius, FontFamily, FontSize } from '@/theme';
+import type { Person } from '@/services/people.service';
+import { MentionText } from '@/features/people/components/MentionText';
+import { getSafeBottomPadding, getSafeTopPadding } from '@/utils/safe-area';
 
 const SCREEN_W = Dimensions.get('window').width;
 const MEDIA_W = Math.min(SCREEN_W - 64, 320);
@@ -72,14 +75,25 @@ let globalActivePlayer: AudioPlayer | null = null;
 
 // ── Fullscreen Video Player Modal ──────────────────────────────────────────────
 function FullscreenVideoModal({ uri, onClose }: { uri: string; onClose: () => void }) {
+  const insets = useSafeAreaInsets();
+  const safeTop = getSafeTopPadding(insets.top, 12, 36, 52);
+  const safeBottom = getSafeBottomPadding(insets.bottom, 24, 56, 40);
+
   const player = useVideoPlayer(uri, (p) => {
     p.play();
   });
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+    <Modal
+      visible
+      transparent
+      statusBarTranslucent
+      navigationBarTranslucent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
       <View style={styles.fullscreenModal}>
-        <SafeAreaView style={styles.fullscreenSafe}>
+        <View style={[styles.fullscreenSafe, { paddingTop: safeTop, paddingBottom: safeBottom }]}>
           <TouchableOpacity onPress={onClose} style={styles.fullscreenCloseBtn} hitSlop={12}>
             <Ionicons name="close" size={26} color="#FFFFFF" />
           </TouchableOpacity>
@@ -91,7 +105,7 @@ function FullscreenVideoModal({ uri, onClose }: { uri: string; onClose: () => vo
               contentFit="contain"
             />
           </View>
-        </SafeAreaView>
+        </View>
       </View>
     </Modal>
   );
@@ -179,7 +193,10 @@ function ImageCard({
   uploadProgressText?: string;
   onRetry?: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   const [fullscreen, setFullscreen] = useState(false);
+  const safeTop = getSafeTopPadding(insets.top, 12, 36, 52);
+  const safeBottom = getSafeBottomPadding(insets.bottom, 24, 56, 40);
   const { width: cardWidth, height: cardHeight } = getMediaDimensions(payload.width, payload.height);
   const isInteractive = !uploadStatus || uploadStatus === 'done';
 
@@ -223,10 +240,17 @@ function ImageCard({
 
       {/* Fullscreen High-Res Image Lightbox Modal */}
       {fullscreen && (
-        <Modal visible={fullscreen} transparent animationType="fade" onRequestClose={() => setFullscreen(false)}>
+        <Modal
+          visible={fullscreen}
+          transparent
+          statusBarTranslucent
+          navigationBarTranslucent
+          animationType="fade"
+          onRequestClose={() => setFullscreen(false)}
+        >
           <View style={styles.fullscreenModal}>
             <Pressable style={StyleSheet.absoluteFill} onPress={() => setFullscreen(false)} />
-            <SafeAreaView style={styles.fullscreenSafe}>
+            <View style={[styles.fullscreenSafe, { paddingTop: safeTop, paddingBottom: safeBottom }]}>
               <TouchableOpacity onPress={() => setFullscreen(false)} style={styles.fullscreenCloseBtn} hitSlop={12}>
                 <Ionicons name="close" size={26} color="#FFFFFF" />
               </TouchableOpacity>
@@ -237,7 +261,7 @@ function ImageCard({
                   contentFit="contain"
                 />
               </View>
-            </SafeAreaView>
+            </View>
           </View>
         </Modal>
       )}
@@ -261,7 +285,10 @@ function VideoCard({
   uploadProgressText?: string;
   onRetry?: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   const [fullscreen, setFullscreen] = useState(false);
+  const safeTop = getSafeTopPadding(insets.top, 12, 36, 52);
+  const safeBottom = getSafeBottomPadding(insets.bottom, 24, 56, 40);
   const { width: cardWidth, height: cardHeight } = getMediaDimensions(payload.width, payload.height);
   const isInteractive = !uploadStatus || uploadStatus === 'done';
 
@@ -558,6 +585,8 @@ export function AttachmentCard({
   uploadProgress,
   uploadProgressText,
   onRetry,
+  people = [],
+  onPressMention,
 }: {
   payload: AttachmentPayload;
   isSelected: boolean;
@@ -565,6 +594,8 @@ export function AttachmentCard({
   uploadProgress?: number;
   uploadProgressText?: string;
   onRetry?: () => void;
+  people?: Person[];
+  onPressMention?: (person: Person) => void;
 }) {
   return (
     <View style={styles.container}>
@@ -601,13 +632,14 @@ export function AttachmentCard({
       {/* WhatsApp-style Caption under media */}
       {Boolean(payload.caption) && (
         <View style={styles.captionBox}>
-          <AppText
+          <MentionText
+            text={payload.caption || ''}
+            people={people}
             variant="body"
             color={Colors.text}
             style={styles.captionText}
-          >
-            {payload.caption}
-          </AppText>
+            onPressMention={isSelected ? undefined : onPressMention}
+          />
         </View>
       )}
     </View>
