@@ -7,7 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "hunch",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.hunch.app",
@@ -19,14 +18,14 @@
         "NSMicrophoneUsageDescription": "Allow Hunch to access your microphone for voice notes.",
         "NSPhotoLibraryUsageDescription": "Allow Hunch to access your photos to attach them to your thoughts.",
         "NSPhotoLibraryAddUsageDescription": "Allow Hunch to save photos to your library.",
-        "UIBackgroundModes": ["audio"]
+        "UIBackgroundModes": [
+          "audio"
+        ]
       }
     },
     "android": {
       "package": "com.hunch.app",
       "versionCode": 1,
-      "compileSdkVersion": 35,
-      "targetSdkVersion": 35,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
@@ -45,7 +44,9 @@
       ],
       "allowBackup": false,
       "predictiveBackGestureEnabled": false,
-      "blockedPermissions": ["com.google.android.gms.permission.AD_ID"]
+      "blockedPermissions": [
+        "com.google.android.gms.permission.AD_ID"
+      ]
     },
     "web": {
       "output": "server",
@@ -91,7 +92,8 @@
         }
       ],
       "expo-video",
-      "expo-audio"
+      "expo-audio",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,
@@ -102,6 +104,6 @@
         "projectId": "0e21c852-a68d-4768-9fbd-9927514ebb52"
       }
     },
-    "owner": "hunch"
+    "owner": "alen899993"
   }
 }
