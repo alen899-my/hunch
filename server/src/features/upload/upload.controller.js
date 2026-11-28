@@ -1,5 +1,20 @@
 const service = require('./upload.service');
-const { ok, created, badRequest, notFound, serverError } = require('../../utils/response');
+const authRepo = require('../auth/auth.repository');
+const { verifyToken } = require('../../utils/jwt');
+const { verifyMediaSignature } = require('../../middlewares/security.middleware');
+const { ok, created, badRequest, forbidden, notFound, serverError } = require('../../utils/response');
+
+const SAFE_HOST_REGEX = /^[a-zA-Z0-9.-]+(:\d{1,5})?$/;
+
+const getSafeRequestBaseUrl = (req) => {
+  if (process.env.PUBLIC_API_URL) {
+    return process.env.PUBLIC_API_URL.replace(/\/+$/, '');
+  }
+  const rawHost = req.get('host') || '';
+  const safeHost = SAFE_HOST_REGEX.test(rawHost) ? rawHost : `localhost:${process.env.PORT || 3000}`;
+  const proto = req.protocol === 'https' ? 'https' : 'http';
+  return `${proto}://${safeHost}`;
+};
 
 const handleError = (res, err) => {
   if (err.status) return res.status(err.status).json({ success: false, message: err.message });
@@ -10,12 +25,14 @@ const handleError = (res, err) => {
 const getPresignedUrl = async (req, res) => {
   const { mimeType, fileSize } = req.body;
 
-  if (!mimeType) return badRequest(res, 'mimeType is required');
-  if (!fileSize || typeof fileSize !== 'number') return badRequest(res, 'fileSize (number) is required');
+  if (!mimeType || typeof mimeType !== 'string') return badRequest(res, 'mimeType is required');
+  if (!fileSize || typeof fileSize !== 'number' || !Number.isFinite(fileSize)) {
+    return badRequest(res, 'fileSize (number) is required');
+  }
 
   try {
     const result = await service.getPresignedPutUrl(req.user.id, mimeType, fileSize);
-    ok(res, result, result.useServerUpload ? 'Server fallback requested' : 'Presigned URL ready');
+    ok(res, result, result.useServerUpload ? 'Server upload requested' : 'Presigned URL ready');
   } catch (err) {
     handleError(res, err);
   }
@@ -26,7 +43,7 @@ const uploadFile = async (req, res) => {
   if (!req.file) return badRequest(res, 'No file received');
 
   const { mimetype, buffer } = req.file;
-  const host = `${req.protocol}://${req.get('host')}`;
+  const host = getSafeRequestBaseUrl(req);
 
   try {
     const result = await service.uploadBuffer(req.user.id, mimetype, buffer, host);
@@ -36,24 +53,53 @@ const uploadFile = async (req, res) => {
   }
 };
 
-// GET /api/upload/raw/:key(*)
+// GET /api/upload/raw/* — requires valid HMAC signature OR owner Bearer JWT
 const getRawFile = async (req, res) => {
   const key = req.params[0] || req.params.key;
-  if (!key) return badRequest(res, 'key is required');
+  if (!key || !service.isSafeUploadKey(key)) {
+    return badRequest(res, 'Invalid file key');
+  }
+
+  const { exp, sig } = req.query;
+  let authorized = verifyMediaSignature(key, exp, sig);
+
+  if (!authorized) {
+    const header = req.headers.authorization;
+    if (header && header.startsWith('Bearer ')) {
+      try {
+        const decoded = verifyToken(header.slice(7).trim());
+        const user = decoded?.id ? await authRepo.findAuthStateById(decoded.id) : null;
+        if (
+          user &&
+          (typeof decoded.tv !== 'number' || decoded.tv === (user.token_version ?? 0)) &&
+          service.isUserUploadKey(user.id, key)
+        ) {
+          authorized = true;
+        }
+      } catch {
+        authorized = false;
+      }
+    }
+  }
+
+  if (!authorized) {
+    return forbidden(res, 'Unauthorized media access');
+  }
 
   try {
     const result = await service.getObjectStream(key);
     if (!result) return notFound(res, 'File not found');
 
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', 'inline');
     if (result.contentType) {
       res.setHeader('Content-Type', result.contentType);
     }
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
 
     if (result.stream.pipe) {
       result.stream.pipe(res);
     } else {
-      // ReadableStream (Node 18+)
       const { Readable } = require('stream');
       Readable.from(result.stream).pipe(res);
     }
@@ -65,10 +111,10 @@ const getRawFile = async (req, res) => {
 // DELETE /api/upload
 const deleteFile = async (req, res) => {
   const { key } = req.body;
-  if (!key) return badRequest(res, 'key is required');
+  if (!key || typeof key !== 'string') return badRequest(res, 'key is required');
 
-  if (!key.startsWith(`uploads/${req.user.id}/`)) {
-    return res.status(403).json({ success: false, message: 'Forbidden' });
+  if (!service.isUserUploadKey(req.user.id, key)) {
+    return forbidden(res, 'Forbidden');
   }
 
   try {

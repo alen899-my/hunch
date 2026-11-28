@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Spacing } from '@/theme';
+import { useThemeColors } from '@/hooks/use-mood-theme';
 import { getSafeBottomPadding } from '@/utils/safe-area';
 
 // Height of the floating tab bar — screens must pad this + safe bottom inset
@@ -32,11 +33,13 @@ export function Screen({
   scroll = false,
   style,
   contentStyle,
-  bg = Colors.background,
+  bg,
   padded = true,
   keyboardAvoiding = false,
   tabScreen = false,
 }: ScreenProps) {
+  const colors = useThemeColors();
+  const resolvedBg = bg ?? colors.background;
   const insets    = useSafeAreaInsets();
   const safeBottom = getSafeBottomPadding(insets.bottom, Spacing[4], 44, 32);
   const extraPad  = tabScreen ? FLOATING_TAB_H + safeBottom : safeBottom;
@@ -77,7 +80,7 @@ export function Screen({
   );
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: bg }, style]} edges={['top']}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: resolvedBg }, style]} edges={['top']}>
       <StatusBar barStyle="dark-content" />
       {inner}
     </SafeAreaView>

@@ -1,7 +1,11 @@
 const repo = require('./people.repository');
 const uploadService = require('../upload/upload.service');
+const {
+  attachMediaSignature,
+  isSafeExternalUrl,
+  signAttachmentThoughtContent,
+} = require('../../middlewares/security.middleware');
 
-// Build a clean URL/mention-friendly handle from a display name or custom input
 const normalizeHandle = (raw) => {
   const cleaned = String(raw || '')
     .trim()
@@ -12,7 +16,6 @@ const normalizeHandle = (raw) => {
   return cleaned || 'person';
 };
 
-// Generate a unique handle for this user, appending _2, _3... if needed
 const ensureUniqueHandle = async (userId, baseHandle, excludeId = null) => {
   let candidate = baseHandle;
   let suffix = 2;
@@ -25,7 +28,6 @@ const ensureUniqueHandle = async (userId, baseHandle, excludeId = null) => {
 
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-// Extract plain searchable text from either standard thought or attachment caption JSON
 const extractSearchableText = (content) => {
   if (!content || typeof content !== 'string') return '';
   const trimmed = content.trim();
@@ -42,7 +44,54 @@ const extractSearchableText = (content) => {
   return content;
 };
 
-const listPeople = (userId) => repo.getPeopleByUser(userId);
+const decoratePersonMedia = (person) => {
+  if (!person || !person.avatar_url) return person;
+  return { ...person, avatar_url: attachMediaSignature(person.avatar_url) };
+};
+
+const validateAvatarForUser = (userId, avatarUrl, avatarKey) => {
+  let cleanKey;
+  if (avatarKey !== undefined) {
+    if (!avatarKey) {
+      cleanKey = null;
+    } else if (!uploadService.isUserUploadKey(userId, avatarKey)) {
+      throw { status: 403, message: 'Forbidden avatar key' };
+    } else {
+      cleanKey = avatarKey;
+    }
+  }
+
+  let cleanUrl;
+  if (avatarUrl !== undefined) {
+    if (!avatarUrl) {
+      cleanUrl = null;
+    } else if (!isSafeExternalUrl(avatarUrl)) {
+      throw { status: 400, message: 'Invalid avatar URL' };
+    } else {
+      const base = String(avatarUrl).trim().split('?')[0];
+      if (base.includes('/api/upload/raw/') && !base.includes(`/uploads/${userId}/`)) {
+        throw { status: 403, message: 'Forbidden avatar resource' };
+      }
+      cleanUrl = base;
+    }
+  }
+
+  return { cleanUrl, cleanKey };
+};
+
+const listPeople = async (userId, q, limit) => {
+  const cleanQuery = typeof q === 'string' ? q.trim() : '';
+  const rows =
+    cleanQuery.length > 0
+      ? await repo.searchPeopleByUser(userId, cleanQuery, limit)
+      : await repo.getPeopleByUser(userId);
+  return rows.map(decoratePersonMedia);
+};
+
+const getMentionedPeopleForDay = async (userId, dayDate) => {
+  const rows = await repo.getMentionedPeopleForDay(userId, dayDate);
+  return rows.map(decoratePersonMedia);
+};
 
 const getPersonDetails = async (userId, personId) => {
   const [person, mentions] = await Promise.all([
@@ -51,10 +100,19 @@ const getPersonDetails = async (userId, personId) => {
   ]);
   if (!person) throw { status: 404, message: 'Person not found' };
 
-  return { person, mentions };
+  return {
+    person: decoratePersonMedia(person),
+    mentions: mentions.map((m) => ({
+      ...m,
+      content: signAttachmentThoughtContent(userId, m.content),
+    })),
+  };
 };
 
-const createPerson = async (userId, { name, handle, avatarUrl, avatarKey }) => {
+const createPerson = async (
+  userId,
+  { name, handle, avatarUrl, avatarKey, relationship, notes, birthday }
+) => {
   const cleanName = name.trim();
   const hasExplicitHandle = typeof handle === 'string' && handle.trim().length > 0;
   const baseHandle = normalizeHandle(hasExplicitHandle ? handle : cleanName);
@@ -66,20 +124,29 @@ const createPerson = async (userId, { name, handle, avatarUrl, avatarKey }) => {
     }
   }
 
+  const { cleanUrl, cleanKey } = validateAvatarForUser(userId, avatarUrl, avatarKey);
   const uniqueHandle = hasExplicitHandle
     ? baseHandle
     : await ensureUniqueHandle(userId, baseHandle);
 
-  return repo.createPerson({
+  const created = await repo.createPerson({
     userId,
     name: cleanName,
     handle: uniqueHandle,
-    avatarUrl: avatarUrl || null,
-    avatarKey: avatarKey || null,
+    avatarUrl: cleanUrl ?? null,
+    avatarKey: cleanKey ?? null,
+    relationship: relationship?.trim() || null,
+    notes: notes?.trim() || null,
+    birthday: birthday?.trim() || null,
   });
+  return decoratePersonMedia(created);
 };
 
-const updatePerson = async (userId, personId, { name, handle, avatarUrl, avatarKey }) => {
+const updatePerson = async (
+  userId,
+  personId,
+  { name, handle, avatarUrl, avatarKey, relationship, notes, birthday }
+) => {
   const existing = await repo.getPersonById(userId, personId);
   if (!existing) throw { status: 404, message: 'Person not found' };
 
@@ -97,15 +164,30 @@ const updatePerson = async (userId, personId, { name, handle, avatarUrl, avatarK
     fields.handle = normalized;
   }
 
-  let oldKeyToDelete = null;
-  if (avatarUrl !== undefined) {
-    fields.avatar_url = avatarUrl || null;
+  if (relationship !== undefined) {
+    fields.relationship = relationship ? String(relationship).trim() : null;
   }
-  if (avatarKey !== undefined) {
-    if (existing.avatar_key && existing.avatar_key !== avatarKey) {
+  if (notes !== undefined) {
+    fields.notes = notes ? String(notes).trim() : null;
+  }
+  if (birthday !== undefined) {
+    fields.birthday = birthday ? String(birthday).trim() : null;
+  }
+
+  const { cleanUrl, cleanKey } = validateAvatarForUser(userId, avatarUrl, avatarKey);
+  let oldKeyToDelete = null;
+  if (cleanUrl !== undefined) {
+    fields.avatar_url = cleanUrl;
+  }
+  if (cleanKey !== undefined) {
+    if (
+      existing.avatar_key &&
+      existing.avatar_key !== cleanKey &&
+      uploadService.isUserUploadKey(userId, existing.avatar_key)
+    ) {
       oldKeyToDelete = existing.avatar_key;
     }
-    fields.avatar_key = avatarKey || null;
+    fields.avatar_key = cleanKey;
   }
 
   const updated = await repo.updatePerson(userId, personId, fields);
@@ -114,14 +196,14 @@ const updatePerson = async (userId, personId, { name, handle, avatarUrl, avatarK
     uploadService.deleteObject(oldKeyToDelete).catch(() => {});
   }
 
-  return updated;
+  return decoratePersonMedia(updated);
 };
 
 const deletePerson = async (userId, personId) => {
   const deleted = await repo.deletePerson(userId, personId);
   if (!deleted) throw { status: 404, message: 'Person not found' };
 
-  if (deleted.avatar_key) {
+  if (deleted.avatar_key && uploadService.isUserUploadKey(userId, deleted.avatar_key)) {
     uploadService.deleteObject(deleted.avatar_key).catch(() => {});
   }
 
@@ -149,7 +231,7 @@ const linkThoughtMentions = async (userId, thoughtId, content, explicitIds = [])
   const findTokenSpan = (token) => {
     if (!token) return null;
     const regex = new RegExp(
-      `(^|[\\s(\\[{"'])@${escapeRegex(token)}(?=$|[\\s.,!?;:)\\]}"'])`,
+      `(^|[\\s(\\[{"',])@${escapeRegex(token)}(?=$|[\\s.,!?;:)\\]}"'])`,
       'gi'
     );
     let match;
@@ -163,7 +245,6 @@ const linkThoughtMentions = async (userId, thoughtId, content, explicitIds = [])
     return null;
   };
 
-  // 1. Honor explicit IDs selected via autocomplete first (resolves duplicate names accurately)
   if (Array.isArray(explicitIds)) {
     for (const rawId of explicitIds) {
       const person = peopleById.get(rawId);
@@ -176,13 +257,15 @@ const linkThoughtMentions = async (userId, thoughtId, content, explicitIds = [])
     }
   }
 
-  // 2. Scan remaining text for @name or @handle matches (longest token first)
   const candidates = [];
   for (const person of people) {
     if (person.name?.trim()) {
       candidates.push({ personId: person.id, token: person.name.trim() });
     }
-    if (person.handle?.trim() && person.handle.trim().toLowerCase() !== person.name?.trim().toLowerCase()) {
+    if (
+      person.handle?.trim() &&
+      person.handle.trim().toLowerCase() !== person.name?.trim().toLowerCase()
+    ) {
       candidates.push({ personId: person.id, token: person.handle.trim() });
     }
   }
@@ -190,7 +273,7 @@ const linkThoughtMentions = async (userId, thoughtId, content, explicitIds = [])
 
   for (const { personId, token } of candidates) {
     const regex = new RegExp(
-      `(^|[\\s(\\[{"'])@${escapeRegex(token)}(?=$|[\\s.,!?;:)\\]}"'])`,
+      `(^|[\\s(\\[{"',])@${escapeRegex(token)}(?=$|[\\s.,!?;:)\\]}"'])`,
       'gi'
     );
     let match;
@@ -208,11 +291,18 @@ const linkThoughtMentions = async (userId, thoughtId, content, explicitIds = [])
   return repo.addMentionsForThought(userId, thoughtId, [...matchedIds]);
 };
 
+const replaceThoughtMentions = async (userId, thoughtId, content, explicitIds = []) => {
+  await repo.clearMentionsForThought(userId, thoughtId);
+  return linkThoughtMentions(userId, thoughtId, content, explicitIds);
+};
+
 module.exports = {
   listPeople,
+  getMentionedPeopleForDay,
   getPersonDetails,
   createPerson,
   updatePerson,
   deletePerson,
   linkThoughtMentions,
+  replaceThoughtMentions,
 };

@@ -3,7 +3,7 @@ import {
   View,
   StyleSheet,
   TouchableOpacity,
-  Dimensions,
+  useWindowDimensions,
   Animated,
   Modal,
   Pressable,
@@ -21,12 +21,12 @@ import {
 } from 'expo-audio';
 import { AppText } from '@/components/ui';
 import { Colors, Spacing, Radius, FontFamily, FontSize } from '@/theme';
+import { useThemeColors } from '@/hooks/use-mood-theme';
 import type { Person } from '@/services/people.service';
 import { MentionText } from '@/features/people/components/MentionText';
 import { getSafeBottomPadding, getSafeTopPadding } from '@/utils/safe-area';
-
-const SCREEN_W = Dimensions.get('window').width;
-const MEDIA_W = Math.min(SCREEN_W - 64, 320);
+import { isSafeMediaUri } from '@/utils/crypto';
+import { formatEmotionPreview } from '../utils/emotions';
 
 export type AttachmentType = 'image' | 'video' | 'audio';
 export type UploadStatus = 'uploading' | 'failed' | 'done';
@@ -54,7 +54,12 @@ export function parseAttachmentThought(content?: string): AttachmentPayload | nu
   if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null;
   try {
     const data = JSON.parse(trimmed);
-    if (data?.type === 'attachment' && data.publicUrl && data.attachmentType) {
+    if (
+      data?.type === 'attachment' &&
+      data.publicUrl &&
+      data.attachmentType &&
+      isSafeMediaUri(data.publicUrl)
+    ) {
       return data as AttachmentPayload;
     }
   } catch {}
@@ -62,6 +67,8 @@ export function parseAttachmentThought(content?: string): AttachmentPayload | nu
 }
 
 export function formatAttachmentPreview(content: string): string {
+  const emo = formatEmotionPreview(content);
+  if (emo) return emo;
   const p = parseAttachmentThought(content);
   if (!p) return content;
   const icons: Record<AttachmentType, string> = { image: '🖼️', video: '🎥', audio: '🎙️' };
@@ -155,26 +162,39 @@ function FrostedGlassUploadOverlay({
 }
 
 // ── Helper to calculate responsive media dimensions (landscape vs portrait) ─
-function getMediaDimensions(width?: number, height?: number) {
-  const maxW = MEDIA_W;
+function getMediaDimensions(
+  screenWidth: number,
+  width?: number,
+  height?: number,
+  fullWidth = false
+) {
+  const maxW = fullWidth
+    ? Math.min(Math.max(screenWidth - 72, 200), 540)
+    : Math.min(Math.max(screenWidth - 64, 210), 320);
+
   if (!width || !height || width <= 0 || height <= 0) {
     // Default to clean 16:9 landscape
-    return { width: maxW, height: Math.round(maxW * 0.5625) };
+    return {
+      width: fullWidth ? ('100%' as const) : maxW,
+      height: Math.round(Math.min(maxW * 0.5625, fullWidth ? 230 : 200)),
+    };
   }
 
   const isLandscape = width >= height;
   if (isLandscape) {
-    // Landscape media: wide, height matches true aspect ratio
     const aspect = height / width;
-    const cardH = Math.round(Math.min(Math.max(maxW * aspect, 140), 220));
-    return { width: maxW, height: cardH };
-  } else {
-    // Portrait media: narrower width, taller height
-    const aspect = height / width;
-    const cardW = Math.round(maxW * 0.75);
-    const cardH = Math.round(Math.min(cardW * aspect, 320));
-    return { width: cardW, height: cardH };
+    const cardH = Math.round(Math.min(Math.max(maxW * aspect, 140), fullWidth ? 240 : 220));
+    return { width: fullWidth ? ('100%' as const) : maxW, height: cardH };
   }
+
+  const aspect = height / width;
+  if (fullWidth) {
+    const cardH = Math.round(Math.min(Math.max(maxW * 0.78 * aspect, 180), 280));
+    return { width: '100%' as const, height: cardH };
+  }
+  const cardW = Math.round(maxW * 0.75);
+  const cardH = Math.round(Math.min(cardW * aspect, 320));
+  return { width: cardW, height: cardH };
 }
 
 // ── Image Card (Tappable Lightbox, Frosted Glass Progress, NO BORDERS) ─────────
@@ -185,6 +205,7 @@ function ImageCard({
   uploadProgress,
   uploadProgressText,
   onRetry,
+  fullWidth,
 }: {
   payload: AttachmentPayload;
   isSelected?: boolean;
@@ -192,12 +213,20 @@ function ImageCard({
   uploadProgress?: number;
   uploadProgressText?: string;
   onRetry?: () => void;
+  fullWidth?: boolean;
 }) {
+  const colors = useThemeColors();
   const insets = useSafeAreaInsets();
+  const { width: screenWidth } = useWindowDimensions();
   const [fullscreen, setFullscreen] = useState(false);
   const safeTop = getSafeTopPadding(insets.top, 12, 36, 52);
   const safeBottom = getSafeBottomPadding(insets.bottom, 24, 56, 40);
-  const { width: cardWidth, height: cardHeight } = getMediaDimensions(payload.width, payload.height);
+  const { width: cardWidth, height: cardHeight } = getMediaDimensions(
+    screenWidth,
+    payload.width,
+    payload.height,
+    fullWidth
+  );
   const isInteractive = !uploadStatus || uploadStatus === 'done';
 
   const handlePress = () => {
@@ -224,9 +253,12 @@ function ImageCard({
           transition={250}
         />
 
-        {/* Selection Amber Tint Overlay */}
+        {/* Selection Tint Overlay */}
         {isSelected && (
-          <View style={styles.mediaSelectedOverlay} pointerEvents="none" />
+          <View
+            style={[styles.mediaSelectedOverlay, { backgroundColor: colors.primaryTint25 }]}
+            pointerEvents="none"
+          />
         )}
 
         {/* Center Frosted Glass Progress / Retry Overlay */}
@@ -277,6 +309,7 @@ function VideoCard({
   uploadProgress,
   uploadProgressText,
   onRetry,
+  fullWidth,
 }: {
   payload: AttachmentPayload;
   isSelected?: boolean;
@@ -284,12 +317,20 @@ function VideoCard({
   uploadProgress?: number;
   uploadProgressText?: string;
   onRetry?: () => void;
+  fullWidth?: boolean;
 }) {
+  const colors = useThemeColors();
   const insets = useSafeAreaInsets();
+  const { width: screenWidth } = useWindowDimensions();
   const [fullscreen, setFullscreen] = useState(false);
   const safeTop = getSafeTopPadding(insets.top, 12, 36, 52);
   const safeBottom = getSafeBottomPadding(insets.bottom, 24, 56, 40);
-  const { width: cardWidth, height: cardHeight } = getMediaDimensions(payload.width, payload.height);
+  const { width: cardWidth, height: cardHeight } = getMediaDimensions(
+    screenWidth,
+    payload.width,
+    payload.height,
+    fullWidth
+  );
   const isInteractive = !uploadStatus || uploadStatus === 'done';
 
   const handlePress = () => {
@@ -316,9 +357,12 @@ function VideoCard({
           transition={200}
         />
 
-        {/* Selection Amber Tint Overlay */}
+        {/* Selection Tint Overlay */}
         {isSelected && (
-          <View style={styles.mediaSelectedOverlay} pointerEvents="none" />
+          <View
+            style={[styles.mediaSelectedOverlay, { backgroundColor: colors.primaryTint25 }]}
+            pointerEvents="none"
+          />
         )}
 
         {/* Video Overlay with Center Play Button (NO VIDEO BADGE per user request) */}
@@ -359,13 +403,16 @@ function AudioCard({
   uploadStatus,
   uploadProgressText,
   onRetry,
+  fullWidth,
 }: {
   payload: AttachmentPayload;
   isSelected: boolean;
   uploadStatus?: UploadStatus;
   uploadProgressText?: string;
   onRetry?: () => void;
+  fullWidth?: boolean;
 }) {
+  const colors = useThemeColors();
   const [isPlaying, setIsPlaying] = useState(false);
   const [playProgress, setPlayProgress] = useState(0);
   const [trackDuration, setTrackDuration] = useState(payload.duration || 0);
@@ -482,7 +529,7 @@ function AudioCard({
     return `${m}:${rem}`;
   };
 
-  const activeColor = isSelected ? '#FFFFFF' : Colors.primary;
+  const activeColor = isSelected ? '#FFFFFF' : colors.primary;
   const inactiveColor = isSelected ? 'rgba(255, 255, 255, 0.45)' : '#D6D2C8';
   const textColor = isSelected ? '#FFFFFF' : Colors.text;
   const subColor = isSelected ? 'rgba(255, 255, 255, 0.88)' : Colors.textSecondary;
@@ -493,8 +540,9 @@ function AudioCard({
     <View
       style={[
         styles.audioCard,
+        fullWidth && styles.audioCardFullWidth,
         {
-          backgroundColor: isSelected ? Colors.primary : '#F3F1EE',
+          backgroundColor: isSelected ? colors.primary : '#F3F1EE',
         },
       ]}
     >
@@ -510,19 +558,19 @@ function AudioCard({
                     ? '#D93838'
                     : isSelected
                     ? '#FFFFFF'
-                    : Colors.primary,
+                    : colors.primary,
               },
             ]}
           >
             {uploadStatus === 'uploading' ? (
-              <ActivityIndicator size="small" color={isSelected ? Colors.primary : '#FFFFFF'} />
+              <ActivityIndicator size="small" color={isSelected ? colors.primary : '#FFFFFF'} />
             ) : uploadStatus === 'failed' ? (
-              <Ionicons name="refresh" size={18} color={isSelected ? Colors.primary : '#FFFFFF'} />
+              <Ionicons name="refresh" size={18} color={isSelected ? colors.primary : '#FFFFFF'} />
             ) : (
               <Ionicons
                 name={isPlaying ? 'pause' : 'play'}
                 size={18}
-                color={isSelected ? Colors.primary : '#FFFFFF'}
+                color={isSelected ? colors.primary : '#FFFFFF'}
                 style={!isPlaying ? { marginLeft: 2 } : undefined}
               />
             )}
@@ -586,7 +634,9 @@ export function AttachmentCard({
   uploadProgressText,
   onRetry,
   people = [],
+  fullWidth = false,
   onPressMention,
+  onPressTag,
 }: {
   payload: AttachmentPayload;
   isSelected: boolean;
@@ -595,10 +645,12 @@ export function AttachmentCard({
   uploadProgressText?: string;
   onRetry?: () => void;
   people?: Person[];
+  fullWidth?: boolean;
   onPressMention?: (person: Person) => void;
+  onPressTag?: (tag: string) => void;
 }) {
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, fullWidth && { width: '100%' }]}>
       {payload.attachmentType === 'image' && (
         <ImageCard
           payload={payload}
@@ -607,6 +659,7 @@ export function AttachmentCard({
           uploadProgress={uploadProgress}
           uploadProgressText={uploadProgressText}
           onRetry={onRetry}
+          fullWidth={fullWidth}
         />
       )}
       {payload.attachmentType === 'video' && (
@@ -617,6 +670,7 @@ export function AttachmentCard({
           uploadProgress={uploadProgress}
           uploadProgressText={uploadProgressText}
           onRetry={onRetry}
+          fullWidth={fullWidth}
         />
       )}
       {payload.attachmentType === 'audio' && (
@@ -626,6 +680,7 @@ export function AttachmentCard({
           uploadStatus={uploadStatus}
           uploadProgressText={uploadProgressText}
           onRetry={onRetry}
+          fullWidth={fullWidth}
         />
       )}
 
@@ -639,6 +694,7 @@ export function AttachmentCard({
             color={Colors.text}
             style={styles.captionText}
             onPressMention={isSelected ? undefined : onPressMention}
+            onPressTag={isSelected ? undefined : onPressTag}
           />
         </View>
       )}
@@ -656,6 +712,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: '#EAE6DF',
     position: 'relative',
+    maxWidth: '100%',
     borderWidth: 0, // NO BORDERS
   },
   mediaImage: {
@@ -664,7 +721,7 @@ const styles = StyleSheet.create({
   },
   mediaSelectedOverlay: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(245, 166, 35, 0.25)',
+    backgroundColor: Colors.primaryTint25,
     borderRadius: Radius.lg,
     zIndex: 5,
   },
@@ -797,8 +854,12 @@ const styles = StyleSheet.create({
     borderWidth: 0, // NO BORDERS
     paddingHorizontal: Spacing[3],
     paddingVertical: 10,
-    minWidth: 240,
-    maxWidth: MEDIA_W,
+    minWidth: 210,
+    maxWidth: '100%',
+  },
+  audioCardFullWidth: {
+    width: '100%',
+    minWidth: 0,
   },
   audioPlayBtn: {
     alignItems: 'center',

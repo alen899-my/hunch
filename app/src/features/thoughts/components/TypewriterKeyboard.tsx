@@ -3,21 +3,20 @@ import {
   View,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
+  useWindowDimensions,
   Platform,
 } from 'react-native';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText } from '@/components/ui';
 import { Colors, Spacing, Radius, FontFamily, FontSize } from '@/theme';
+import { useThemeColors } from '@/hooks/use-mood-theme';
 import {
   playTypewriterSound,
   toggleTypewriterMute,
   isTypewriterMuted,
 } from '@/services/typewriter-sound.service';
 import { getSafeBottomPadding } from '@/utils/safe-area';
-
-const SCREEN_W = Dimensions.get('window').width;
 
 interface TypewriterKeyboardProps {
   onKeyPress: (char: string) => void;
@@ -41,6 +40,8 @@ interface KeyCapProps {
   isShifted?: boolean;
   onPress: (char: string) => void;
   width?: number;
+  height?: number;
+  compactText?: boolean;
 }
 
 const KeyCap = React.memo(function KeyCap({
@@ -48,6 +49,8 @@ const KeyCap = React.memo(function KeyCap({
   isShifted,
   onPress,
   width,
+  height,
+  compactText,
 }: KeyCapProps) {
   const displayChar = isShifted ? label.toUpperCase() : label.toLowerCase();
 
@@ -60,10 +63,16 @@ const KeyCap = React.memo(function KeyCap({
     <TouchableOpacity
       activeOpacity={0.7}
       onPress={handlePress}
-      style={[styles.keyBase, width ? { width } : null]}
+      style={[
+        styles.keyBase,
+        width ? { width } : null,
+        height ? { height } : null,
+      ]}
     >
       <View style={styles.keyCap3D}>
-        <AppText style={styles.keyText}>{displayChar}</AppText>
+        <AppText style={[styles.keyText, compactText && { fontSize: 16 }]}>
+          {displayChar}
+        </AppText>
       </View>
     </TouchableOpacity>
   );
@@ -76,7 +85,16 @@ export function TypewriterKeyboard({
   onSwitchToNative,
   canSend,
 }: TypewriterKeyboardProps) {
+  const colors = useThemeColors();
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+  const isSmallPhone = width < 360;
+  const kbWidth = Math.min(width, 540);
+  const keyGap = isSmallPhone ? 3 : 4;
+  const keyW = Math.max(24, Math.floor((kbWidth - 12 - keyGap * 9) / 10));
+  const keyH = height < 680 ? 39 : 44;
+  const actionKeyW = Math.floor(keyW * 1.32);
+  const modeKeyW = Math.floor(keyW * 1.28);
   const safeBottom = getSafeBottomPadding(insets.bottom, 16, 48, 32);
   const [isShifted, setIsShifted] = useState(false);
   const [isSymbolMode, setIsSymbolMode] = useState(false);
@@ -127,167 +145,200 @@ export function TypewriterKeyboard({
 
   return (
     <View style={[styles.keyboardContainer, { paddingBottom: safeBottom }]}>
-      {/* ── Minimalist Top Controls (Theme Based, Non-AI) ── */}
-      <View style={styles.topBar}>
-        <TouchableOpacity
-          onPress={handleToggleSound}
-          style={styles.topPillBtn}
-          activeOpacity={0.75}
-          hitSlop={8}
-        >
-          <Ionicons
-            name={muted ? 'volume-mute' : 'volume-high'}
-            size={16}
-            color={muted ? Colors.textMuted : Colors.primary}
-            style={{ marginRight: 5 }}
-          />
-          <AppText style={styles.topPillText}>
-            {muted ? 'Sound Off' : 'Sound On'}
-          </AppText>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={onSwitchToNative}
-          style={styles.topPillBtn}
-          activeOpacity={0.75}
-          hitSlop={8}
-        >
-          <Ionicons
-            name="phone-portrait-outline"
-            size={14}
-            color={Colors.textSecondary}
-            style={{ marginRight: 5 }}
-          />
-          <AppText style={styles.topPillText}>System Keyboard</AppText>
-        </TouchableOpacity>
-      </View>
-
-      {/* ── Row 1 ── */}
-      <View style={styles.row}>
-        {currentRow1.map((char) => (
-          <KeyCap
-            key={char}
-            label={char}
-            isShifted={isShifted && !isSymbolMode}
-            onPress={handleChar}
-          />
-        ))}
-      </View>
-
-      {/* ── Row 2 ── */}
-      <View style={styles.row}>
-        {currentRow2.map((char) => (
-          <KeyCap
-            key={char}
-            label={char}
-            isShifted={isShifted && !isSymbolMode}
-            onPress={handleChar}
-          />
-        ))}
-      </View>
-
-      {/* ── Row 3: Shift, Letters, Backspace ── */}
-      <View style={styles.row}>
-        {/* 3D Shift Key */}
-        <TouchableOpacity
-          onPress={handleShiftToggle}
-          activeOpacity={0.7}
-          style={[styles.keyBase, styles.actionKey]}
-        >
-          <View
-            style={[
-              styles.actionKeyCap3D,
-              isShifted && styles.shiftActiveCap3D,
-            ]}
+      <View style={styles.keyboardInner}>
+        {/* ── Minimalist Top Controls (Theme Based, Non-AI) ── */}
+        <View style={styles.topBar}>
+          <TouchableOpacity
+            onPress={handleToggleSound}
+            style={styles.topPillBtn}
+            activeOpacity={0.75}
+            hitSlop={8}
           >
             <Ionicons
-              name={isShifted ? 'arrow-up' : 'arrow-up-outline'}
-              size={18}
-              color={isShifted ? '#FFFFFF' : '#38342E'}
+              name={muted ? 'volume-mute' : 'volume-high'}
+              size={16}
+              color={muted ? Colors.textMuted : colors.primary}
+              style={{ marginRight: 5 }}
             />
-          </View>
-        </TouchableOpacity>
-
-        {currentRow3.map((char) => (
-          <KeyCap
-            key={char}
-            label={char}
-            isShifted={isShifted && !isSymbolMode}
-            onPress={handleChar}
-          />
-        ))}
-
-        {/* 3D Backspace Key */}
-        <TouchableOpacity
-          onPress={handleBackspacePress}
-          activeOpacity={0.7}
-          style={[styles.keyBase, styles.actionKey]}
-        >
-          <View style={styles.actionKeyCap3D}>
-            <Feather name="delete" size={17} color="#38342E" />
-          </View>
-        </TouchableOpacity>
-      </View>
-
-      {/* ── Row 4: 123 Switch, Comma, 3D Spacebar, Dot, 3D Amber Send Key ── */}
-      <View style={styles.row}>
-        {/* Numbers / Letters Mode Switcher */}
-        <TouchableOpacity
-          onPress={handleModeToggle}
-          activeOpacity={0.7}
-          style={[styles.keyBase, styles.modeKey]}
-        >
-          <View style={styles.actionKeyCap3D}>
-            <AppText style={styles.modeKeyText}>
-              {isSymbolMode ? 'ABC' : '?123'}
+            <AppText style={styles.topPillText}>
+              {muted ? 'Sound Off' : 'Sound On'}
             </AppText>
-          </View>
-        </TouchableOpacity>
+          </TouchableOpacity>
 
-        {/* Comma Key */}
-        <KeyCap label="," onPress={handleChar} width={KEY_W} />
-
-        {/* 3D Spacebar (Theme Cream/White) */}
-        <TouchableOpacity
-          activeOpacity={0.75}
-          onPress={handleSpace}
-          style={styles.spacebarBase}
-        >
-          <View style={styles.spacebarCap3D}>
-            <AppText style={styles.spacebarText}>space</AppText>
-          </View>
-        </TouchableOpacity>
-
-        {/* Dot Key */}
-        <KeyCap label="." onPress={handleChar} width={KEY_W} />
-
-        {/* 3D Amber Return / Send Key */}
-        <TouchableOpacity
-          onPress={handleSendPress}
-          activeOpacity={0.8}
-          disabled={!canSend}
-          style={[styles.keyBase, styles.returnKey]}
-        >
-          <View
-            style={[
-              styles.returnKeyCap3D,
-              !canSend && styles.returnKeyCapDisabled,
-            ]}
+          <TouchableOpacity
+            onPress={onSwitchToNative}
+            style={styles.topPillBtn}
+            activeOpacity={0.75}
+            hitSlop={8}
           >
             <Ionicons
-              name="return-down-back"
-              size={20}
-              color={canSend ? '#FFFFFF' : '#8C867C'}
+              name="phone-portrait-outline"
+              size={14}
+              color={Colors.textSecondary}
+              style={{ marginRight: 5 }}
             />
-          </View>
-        </TouchableOpacity>
+            <AppText style={styles.topPillText}>System Keyboard</AppText>
+          </TouchableOpacity>
+        </View>
+
+        {/* ── Row 1 ── */}
+        <View style={[styles.row, { gap: keyGap }]}>
+          {currentRow1.map((char) => (
+            <KeyCap
+              key={char}
+              label={char}
+              isShifted={isShifted && !isSymbolMode}
+              onPress={handleChar}
+              width={keyW}
+              height={keyH}
+              compactText={isSmallPhone}
+            />
+          ))}
+        </View>
+
+        {/* ── Row 2 ── */}
+        <View style={[styles.row, { gap: keyGap }]}>
+          {currentRow2.map((char) => (
+            <KeyCap
+              key={char}
+              label={char}
+              isShifted={isShifted && !isSymbolMode}
+              onPress={handleChar}
+              width={keyW}
+              height={keyH}
+              compactText={isSmallPhone}
+            />
+          ))}
+        </View>
+
+        {/* ── Row 3: Shift, Letters, Backspace ── */}
+        <View style={[styles.row, { gap: keyGap }]}>
+          {/* 3D Shift Key */}
+          <TouchableOpacity
+            onPress={handleShiftToggle}
+            activeOpacity={0.7}
+            style={[styles.keyBase, { width: actionKeyW, height: keyH }]}
+          >
+            <View
+              style={[
+                styles.actionKeyCap3D,
+                isShifted && [
+                  styles.shiftActiveCap3D,
+                  {
+                    backgroundColor: colors.primary,
+                    borderColor: colors.primaryDark,
+                    borderBottomColor: colors.primaryText,
+                  },
+                ],
+              ]}
+            >
+              <Ionicons
+                name={isShifted ? 'arrow-up' : 'arrow-up-outline'}
+                size={18}
+                color={isShifted ? '#FFFFFF' : '#38342E'}
+              />
+            </View>
+          </TouchableOpacity>
+
+          {currentRow3.map((char) => (
+            <KeyCap
+              key={char}
+              label={char}
+              isShifted={isShifted && !isSymbolMode}
+              onPress={handleChar}
+              width={keyW}
+              height={keyH}
+              compactText={isSmallPhone}
+            />
+          ))}
+
+          {/* 3D Backspace Key */}
+          <TouchableOpacity
+            onPress={handleBackspacePress}
+            activeOpacity={0.7}
+            style={[styles.keyBase, { width: actionKeyW, height: keyH }]}
+          >
+            <View style={styles.actionKeyCap3D}>
+              <Feather name="delete" size={17} color="#38342E" />
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        {/* ── Row 4: 123 Switch, Comma, 3D Spacebar, Dot, 3D Amber Send Key ── */}
+        <View style={[styles.row, { gap: keyGap }]}>
+          {/* Numbers / Letters Mode Switcher */}
+          <TouchableOpacity
+            onPress={handleModeToggle}
+            activeOpacity={0.7}
+            style={[styles.keyBase, { width: modeKeyW, height: keyH }]}
+          >
+            <View style={styles.actionKeyCap3D}>
+              <AppText style={styles.modeKeyText}>
+                {isSymbolMode ? 'ABC' : '?123'}
+              </AppText>
+            </View>
+          </TouchableOpacity>
+
+          {/* Comma Key */}
+          <KeyCap
+            label=","
+            onPress={handleChar}
+            width={keyW}
+            height={keyH}
+            compactText={isSmallPhone}
+          />
+
+          {/* 3D Spacebar (Theme Cream/White) */}
+          <TouchableOpacity
+            activeOpacity={0.75}
+            onPress={handleSpace}
+            style={[styles.spacebarBase, { height: keyH }]}
+          >
+            <View style={styles.spacebarCap3D}>
+              <AppText style={styles.spacebarText}>space</AppText>
+            </View>
+          </TouchableOpacity>
+
+          {/* Dot Key */}
+          <KeyCap
+            label="."
+            onPress={handleChar}
+            width={keyW}
+            height={keyH}
+            compactText={isSmallPhone}
+          />
+
+          {/* 3D Amber Return / Send Key */}
+          <TouchableOpacity
+            onPress={handleSendPress}
+            activeOpacity={0.8}
+            disabled={!canSend}
+            style={[styles.keyBase, { width: actionKeyW, height: keyH }]}
+          >
+            <View
+              style={[
+                styles.returnKeyCap3D,
+                {
+                  backgroundColor: colors.primary,
+                  borderColor: colors.primaryDark,
+                  borderBottomColor: colors.primaryText,
+                  shadowColor: colors.primary,
+                },
+                !canSend && styles.returnKeyCapDisabled,
+              ]}
+            >
+              <Ionicons
+                name="return-down-back"
+                size={20}
+                color={canSend ? '#FFFFFF' : '#8C867C'}
+              />
+            </View>
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
 }
-
-// Keycap width dynamically calculated to fit 10 keys per row cleanly
-const KEY_W = Math.floor((SCREEN_W - 24) / 10) - 3;
 
 const styles = StyleSheet.create({
   keyboardContainer: {
@@ -297,6 +348,11 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: Platform.OS === 'ios' ? 24 : 12,
     paddingHorizontal: 6,
+    alignItems: 'center',
+  },
+  keyboardInner: {
+    width: '100%',
+    maxWidth: 540,
     gap: 7,
   },
   topBar: {
@@ -335,7 +391,6 @@ const styles = StyleSheet.create({
 
   // ── 3D Mechanical Keycap Geometry ───
   keyBase: {
-    width: KEY_W,
     height: 44,
   },
   keyCap3D: {
@@ -362,9 +417,6 @@ const styles = StyleSheet.create({
   },
 
   // ── Action Keys (Shift, Backspace, 123) ───
-  actionKey: {
-    width: Math.floor(KEY_W * 1.35),
-  },
   actionKeyCap3D: {
     width: '100%',
     height: '100%',
@@ -384,14 +436,11 @@ const styles = StyleSheet.create({
   },
   shiftActiveCap3D: {
     backgroundColor: Colors.primary,
-    borderColor: '#E09518',
-    borderBottomColor: '#C47D10',
+    borderColor: Colors.primaryDark,
+    borderBottomColor: Colors.primaryText,
   },
 
   // ── Mode Key (?123) ───
-  modeKey: {
-    width: Math.floor(KEY_W * 1.3),
-  },
   modeKeyText: {
     fontFamily: FontFamily.bold,
     fontSize: 12,
@@ -428,18 +477,15 @@ const styles = StyleSheet.create({
   },
 
   // ── 3D Amber Return / Send Key ───
-  returnKey: {
-    width: Math.floor(KEY_W * 1.35),
-  },
   returnKeyCap3D: {
     width: '100%',
     height: '100%',
     borderRadius: 7,
-    backgroundColor: Colors.primary, // Hunch Amber CTA!
+    backgroundColor: Colors.primary,
     borderWidth: 1,
-    borderColor: '#DE8E13',
+    borderColor: Colors.primaryDark,
     borderBottomWidth: 3.5, // 3D Drop Edge
-    borderBottomColor: '#C27C0E',
+    borderBottomColor: Colors.primaryText,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: Colors.primary,

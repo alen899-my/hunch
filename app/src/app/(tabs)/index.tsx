@@ -1,246 +1,381 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
-  View,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
+  View,
   useWindowDimensions,
-  FlatList,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import { Image } from 'expo-image';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import { AppText, Avatar, Badge, Card } from '@/components/ui';
-import { Colors, Spacing, Radius, Shadow, FontFamily } from '@/theme';
+import { AppText, Avatar } from '@/components/ui';
+import { Colors, FontFamily, FontSize, Radius, Shadow, Spacing } from '@/theme';
 import { useAuth } from '@/hooks/use-auth';
+import { useThoughts, useThoughtsStats } from '@/hooks/use-thoughts';
+import { useAppLock } from '@/hooks/use-app-lock';
+import { useCurrentMood, useThemeColors } from '@/hooks/use-mood-theme';
+import {
+  FadeSlideView,
+  TactileCardButton,
+} from '@/features/home/components/AnimatedMotionPrimitives';
+import { EmotionMeterCard } from '@/features/home/components/EmotionMeterCard';
+import { WeeklyRecapCard } from '@/features/home/components/WeeklyRecapCard';
 import { getSafeBottomPadding } from '@/utils/safe-area';
 
-// ── Helpers ─────────────────────────────────────────────────
-const DAYS   = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const today  = new Date();
-const todayN = today.getDate();
+const HERO_JOURNAL_IMG = require('../../../assets/images/dashboard/hero-journal.jpg');
+const MORNING_RITUAL_IMG = require('../../../assets/images/dashboard/morning-ritual.jpg');
+const EVENING_RITUAL_IMG = require('../../../assets/images/dashboard/evening-ritual.jpg');
+const PAUSE_BOTANICAL_IMG = require('../../../assets/images/dashboard/pause-botanical.jpg');
 
-function getDayStrip() {
-  return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(today);
-    d.setDate(todayN - 3 + i);
-    return { num: d.getDate(), day: DAYS[d.getDay() === 0 ? 6 : d.getDay() - 1] };
-  });
+function toLocalDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
-const MOODS = [
-  { label: 'Happy',   pct: 48, color: Colors.emotionHappy },
-  { label: 'Sad',     pct: 33, color: Colors.emotionSad   },
-  { label: 'Calm',    pct: 27, color: Colors.emotionCalm  },
-  { label: 'Anxious', pct: 40, color: Colors.emotionAnxious },
+function getTimeGreeting(hour: number): string {
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+const RITUAL_CARDS = [
+  {
+    id: 'morning',
+    title: 'Morning Pages',
+    subtitle: 'What intention will ground you today?',
+    mood: 'calm',
+    prompt: 'Morning intention: ',
+    image: MORNING_RITUAL_IMG,
+    imageBg: '#E9F0EB',
+  },
+  {
+    id: 'pause',
+    title: 'Pause & Notice',
+    subtitle: 'Name one small joy before it passes.',
+    mood: 'grateful',
+    prompt: 'I am grateful for ',
+    image: PAUSE_BOTANICAL_IMG,
+    imageBg: '#F4EFE6',
+  },
+  {
+    id: 'evening',
+    title: 'Evening Unwind',
+    subtitle: 'Leave heavy thoughts softly on paper.',
+    mood: 'calm',
+    prompt: 'Evening reflection: ',
+    image: EVENING_RITUAL_IMG,
+    imageBg: '#EAEDF3',
+  },
 ];
 
-const QUICK_CARDS = [
-  { id: '1', title: 'Pause & reflect', prompt: 'What are you grateful for today?', tag: 'Personal', tagColor: 'pink' as const },
-  { id: '2', title: 'Set Intentions',  prompt: 'How do you want to feel?',          tag: 'Family',  tagColor: 'purple' as const },
-  { id: '3', title: 'Evening check',   prompt: 'What made you smile today?',        tag: 'Self',    tagColor: 'green' as const },
-];
-
-// ── Sub-components ───────────────────────────────────────────
-function SectionHeader({ title, onSeeAll }: { title: string; onSeeAll?: () => void }) {
+function SectionTitle({
+  title,
+  actionLabel,
+  onAction,
+}: {
+  title: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  const colors = useThemeColors();
   return (
     <View style={s.sectionHeader}>
-      <AppText variant="h4">{title}</AppText>
-      {onSeeAll && (
-        <TouchableOpacity onPress={onSeeAll}>
-          <AppText variant="label" color={Colors.primary}>See all</AppText>
+      <AppText style={s.sectionTitle}>{title}</AppText>
+      {actionLabel && onAction && (
+        <TouchableOpacity onPress={onAction} hitSlop={8} activeOpacity={0.7}>
+          <AppText
+            variant="label"
+            color={colors.primaryDark}
+            style={{ fontFamily: FontFamily.semiBold }}
+          >
+            {actionLabel}
+          </AppText>
         </TouchableOpacity>
       )}
     </View>
   );
 }
 
-function DateStrip({ cols }: { cols: number }) {
-  const days = getDayStrip();
-  const sliced = cols >= 7 ? days : days.slice(0, cols);
-  return (
-    <View style={s.dateRow}>
-      {sliced.map(({ num, day }) => {
-        const isToday = num === todayN;
-        return (
-          <View key={num} style={[s.dateCell, isToday && s.dateCellActive]}>
-            <AppText
-              variant="caption"
-              color={isToday ? Colors.textOnPrimary : Colors.textMuted}
-              style={{ fontFamily: FontFamily.medium }}
-            >
-              {day}
-            </AppText>
-            <AppText
-              variant="bodyMd"
-              color={isToday ? Colors.textOnPrimary : Colors.text}
-            >
-              {num}
-            </AppText>
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
-function MoodBar({ label, pct, color }: { label: string; pct: number; color: string }) {
-  return (
-    <View style={s.moodCol}>
-      <View style={s.moodTrack}>
-        <View style={[s.moodFill, { height: `${pct}%` as any, backgroundColor: color }]} />
-        <AppText variant="caption" color={Colors.white} style={s.moodPct}>{pct}%</AppText>
-      </View>
-      <AppText variant="caption" color={Colors.textSecondary} align="center">{label}</AppText>
-    </View>
-  );
-}
-
-// ── Screen ───────────────────────────────────────────────────
 export default function HomeTab() {
-  const insets       = useSafeAreaInsets();
-  const { width }    = useWindowDimensions();
-  const { user }     = useAuth();
-  const isTablet     = width >= 600;
-  const hPad         = isTablet ? Spacing[8] : Spacing[5];
-  const cols         = isTablet ? 7 : 7;
-  const maxW         = isTablet ? 640 : undefined;
-  const firstName    = user?.name?.split(' ')[0] ?? 'there';
+  const colors = useThemeColors();
+  const currentMood = useCurrentMood();
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const { user } = useAuth();
+  const { days, fetchDays } = useThoughts();
+  const { stats, fetchStats } = useThoughtsStats();
+  const { reminders } = useAppLock();
+  const [refreshing, setRefreshing] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchDays(true);
+      fetchStats(true);
+    }, [fetchDays, fetchStats])
+  );
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([fetchDays(false), fetchStats(true)]);
+    setRefreshing(false);
+  };
+
+  const isTablet = width >= 600;
+  const isSmallPhone = width < 370;
+  const hPad = isTablet ? Spacing[8] : isSmallPhone ? Spacing[4] : Spacing[5];
+  const maxW = isTablet ? 660 : undefined;
+  const firstName = user?.name?.split(' ')[0] ?? 'there';
+
+  const today = new Date();
+  const todayStr = toLocalDateStr(today);
+  const todaySummary = days.find((d) => d.day_date === todayStr);
+
+  const currentHour = today.getHours();
+  const timeGreeting = getTimeGreeting(currentHour);
+  const showMorningReminder =
+    reminders.morningEnabled && currentHour < 12 && !todaySummary;
+  const showEveningReminder =
+    reminders.eveningEnabled && currentHour >= 18 && !todaySummary;
+
+  const ritualCardWidth = isSmallPhone ? 168 : isTablet ? 200 : 182;
+
+  const openTodayWithPrompt = (prompt?: string, mood?: string) => {
+    const params: Record<string, string> = {};
+    if (prompt) params.prompt = prompt;
+    if (mood) params.mood = mood;
+    router.push({ pathname: `/thoughts/${todayStr}` as any, params });
+  };
 
   return (
-    <SafeAreaView style={s.safe} edges={['top']}>
+    <SafeAreaView style={[s.safe, { backgroundColor: colors.background }]} edges={['top']}>
       <ScrollView
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
         contentContainerStyle={[
           s.scroll,
           { paddingHorizontal: hPad },
           maxW ? { maxWidth: maxW, alignSelf: 'center' as const, width: '100%' } : null,
         ]}
       >
-        {/* ── Greeting ─────────────────────────── */}
-        <View style={s.greeting}>
-          <View style={s.greetLeft}>
-            <AppText variant="h2" style={s.greetName}>Hi, {firstName}</AppText>
-            <AppText variant="body" color={Colors.textSecondary}>
-              {today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-            </AppText>
-          </View>
-          <Avatar initials={user?.name?.slice(0,2) ?? 'U'} uri={user?.avatar} size="lg" />
-        </View>
-
-        {/* ── Date strip ───────────────────────── */}
-        <DateStrip cols={cols} />
-
-        {/* ── Daily Thoughts Stream Feature Banner ── */}
-        <TouchableOpacity
-          activeOpacity={0.88}
-          onPress={() => router.push(`/thoughts/${today.toISOString().split('T')[0]}` as any)}
-          style={s.thoughtStreamCard}
-        >
-          <View style={s.thoughtStreamLeft}>
-            <View style={s.thoughtStreamBadge}>
-              <Ionicons name="chatbubbles" size={14} color={Colors.white} />
-              <AppText variant="caption" color={Colors.white} style={{ fontFamily: FontFamily.bold, fontSize: 10 }}>
-                DAILY THOUGHTS
+        {/* ── 1. Clean Readable Greeting (wraps smoothly, no badge under it) ── */}
+        <FadeSlideView delay={0} distance={10}>
+          <View style={s.masthead}>
+            <View style={s.mastheadLeft}>
+              <AppText variant="caption" color={Colors.textMuted} style={s.dateEyebrow}>
+                {today
+                  .toLocaleDateString('en-US', {
+                    weekday: 'long',
+                    month: 'short',
+                    day: 'numeric',
+                  })
+                  .toUpperCase()}
+              </AppText>
+              <AppText
+                style={[
+                  s.greetName,
+                  isSmallPhone && { fontSize: 25, lineHeight: 31 },
+                  isTablet && { fontSize: 32, lineHeight: 38 },
+                ]}
+              >
+                {timeGreeting}, {firstName}
               </AppText>
             </View>
-            <AppText variant="title" style={{ color: Colors.text }}>
-              Dump thinking & overthinking
-            </AppText>
-            <AppText variant="caption" color={Colors.textSecondary}>
-              Tap to open today's chat stream
-            </AppText>
-          </View>
-          <TouchableOpacity
-            onPress={(e) => {
-              e.stopPropagation();
-              router.push('/thoughts' as any);
-            }}
-            style={s.viewAllDaysBtn}
-          >
-            <Ionicons name="calendar-outline" size={18} color={Colors.primaryDark} />
-            <AppText variant="caption" color={Colors.primaryDark} style={{ fontFamily: FontFamily.bold }}>
-              All Days
-            </AppText>
-          </TouchableOpacity>
-        </TouchableOpacity>
 
-        {/* ── My Journal ───────────────────────── */}
-        <SectionHeader title="My Journal" onSeeAll={() => router.push('/thoughts' as any)} />
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.hScroll}>
-          <View style={s.hRow}>
-            {/* Morning card */}
-            <TouchableOpacity 
-              activeOpacity={0.85}
-              onPress={() => router.push(`/thoughts/${today.toISOString().split('T')[0]}` as any)}
+            <TactileCardButton
+              onPress={() => router.push('/(tabs)/profile' as any)}
+              scaleTo={0.92}
+              style={{ marginTop: 2 }}
             >
-              <Card bg={Colors.primaryLight} shadow="xs" style={s.journalCard}>
-                <Ionicons name="sunny-outline" size={28} color={Colors.primary} />
-                <AppText variant="title" color={Colors.primaryText}>Let's start{'\n'}your day</AppText>
-                <AppText variant="caption" color={Colors.textSecondary}>
-                  Begin with a mindful morning reflection.
-                </AppText>
-              </Card>
-            </TouchableOpacity>
-
-            {/* Evening card */}
-            <TouchableOpacity 
-              activeOpacity={0.85}
-              onPress={() => router.push(`/thoughts/${today.toISOString().split('T')[0]}` as any)}
-            >
-              <Card bg={Colors.surfaceAlt} shadow="xs" style={s.journalCard}>
-                <Ionicons name="moon-outline" size={28} color={Colors.textSecondary} />
-                <AppText variant="title">Evening</AppText>
-                <AppText variant="caption" color={Colors.textSecondary}>
-                  How did today feel?
-                </AppText>
-              </Card>
-            </TouchableOpacity>
-
-            {/* Add card */}
-            <TouchableOpacity 
-              style={[s.journalCard, s.addCard]}
-              onPress={() => router.push(`/thoughts/${today.toISOString().split('T')[0]}` as any)}
-            >
-              <Ionicons name="add-circle-outline" size={32} color={Colors.primary} />
-              <AppText variant="label" color={Colors.primary}>New entry</AppText>
-            </TouchableOpacity>
+              <Avatar
+                initials={user?.name?.slice(0, 2) ?? 'U'}
+                uri={user?.avatar}
+                size={isSmallPhone ? 'md' : 'lg'}
+              />
+            </TactileCardButton>
           </View>
-        </ScrollView>
+        </FadeSlideView>
 
-        {/* ── Emotions ─────────────────────────── */}
-        <Card style={s.moodCard} shadow="xs">
-          <SectionHeader title="Emotions" />
-          <AppText variant="caption" color={Colors.textMuted}>
-            Here are your four core emotions
-          </AppText>
-          <View style={s.moodRow}>
-            {MOODS.map((m) => <MoodBar key={m.label} {...m} />)}
-          </View>
-        </Card>
-
-        {/* ── Quick Journal ────────────────────── */}
-        <SectionHeader title="Quick Journal" onSeeAll={() => {}} />
-        <FlatList
-          data={QUICK_CARDS}
-          keyExtractor={(i) => i.id}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          ItemSeparatorComponent={() => <View style={{ width: Spacing[3] }} />}
-          contentContainerStyle={{ paddingRight: hPad }}
-          renderItem={({ item }) => (
-            <Card style={s.quickCard} shadow="sm">
-              <AppText variant="title" numberOfLines={1}>{item.title}</AppText>
-              <AppText variant="caption" color={Colors.textSecondary} style={{ marginTop: 4 }}>
-                {item.prompt}
-              </AppText>
-              <View style={s.quickFooter}>
-                <AppText variant="caption" color={Colors.textMuted}>Today</AppText>
-                <Badge label={item.tag} color={item.tagColor} />
+        {/* ── Reminder Strip (when enabled & no entry yet today) ── */}
+        {(showMorningReminder || showEveningReminder) && (
+          <FadeSlideView delay={40}>
+            <TactileCardButton
+              onPress={() =>
+                openTodayWithPrompt(
+                  showMorningReminder ? 'Morning intention: ' : 'Evening check-in: '
+                )
+              }
+              contentStyle={[
+                s.reminderStrip,
+                { backgroundColor: colors.primaryLight, borderColor: colors.primaryBorder },
+              ]}
+            >
+              <View style={[s.reminderIconWrap, { backgroundColor: colors.surface }]}>
+                <Ionicons
+                  name={showMorningReminder ? 'sunny' : 'moon'}
+                  size={15}
+                  color={colors.primaryDark}
+                />
               </View>
-            </Card>
-          )}
-        />
+              <AppText variant="label" color={colors.primaryText} style={{ flex: 1 }}>
+                {showMorningReminder
+                  ? 'Morning reminder: set a calm intention for today'
+                  : 'Evening reminder: unwind & reflect on how today felt'}
+              </AppText>
+              <Ionicons name="arrow-forward" size={15} color={colors.primaryDark} />
+            </TactileCardButton>
+          </FadeSlideView>
+        )}
+
+        {/* ── 2. Illustrated Today Card (Clean, no desk badge, no archive button) ── */}
+        <FadeSlideView delay={60}>
+          <TactileCardButton
+            onPress={() => router.push(`/thoughts/${todayStr}` as any)}
+            style={s.heroOuter}
+            contentStyle={s.heroCard}
+          >
+            <View style={s.heroLeftCol}>
+              <AppText
+                style={[
+                  s.heroHeading,
+                  isSmallPhone && { fontSize: 20, lineHeight: 26 },
+                ]}
+              >
+                {todaySummary
+                  ? `${todaySummary.thought_count} ${
+                      todaySummary.thought_count === 1 ? 'thought' : 'thoughts'
+                    } today`
+                  : 'Quiet space for your thoughts'}
+              </AppText>
+
+              <AppText variant="body" color={Colors.textSecondary} style={s.heroSubcopy}>
+                {todaySummary
+                  ? "Pick up right where you left off in today's journal."
+                  : 'Write freely, capture voice notes, or check in with your mood.'}
+              </AppText>
+
+              <View style={[s.heroPrimaryBtn, { backgroundColor: colors.primary }]}>
+                <Ionicons name="create-outline" size={15} color={colors.textOnPrimary} />
+                <AppText
+                  variant="caption"
+                  color={colors.textOnPrimary}
+                  style={s.heroPrimaryBtnText}
+                >
+                  {todaySummary ? 'Continue writing' : 'Write today'}
+                </AppText>
+                <Feather name="arrow-right" size={13} color={colors.textOnPrimary} />
+              </View>
+            </View>
+
+            <View style={[s.heroArtFrame, isSmallPhone && { width: 96, height: 116 }]}>
+              <Image
+                source={HERO_JOURNAL_IMG}
+                style={s.heroArtImg}
+                contentFit="cover"
+                transition={250}
+              />
+            </View>
+          </TactileCardButton>
+        </FadeSlideView>
+
+        {/* ── 3. Animated Emotion Meter ── */}
+        <FadeSlideView delay={120} style={s.sectionGap}>
+          <EmotionMeterCard
+            moodCounts={stats?.moodCounts ?? []}
+            latestMood={currentMood ?? stats?.latestMood ?? null}
+            isSmallPhone={isSmallPhone}
+            onSelectMood={(moodKey) => openTodayWithPrompt(undefined, moodKey)}
+          />
+        </FadeSlideView>
+
+        {/* ── 4. Illustrated Journal Rituals ── */}
+        <FadeSlideView delay={180} style={s.sectionGap}>
+          <SectionTitle
+            title="Daily Rituals"
+            actionLabel="All days"
+            onAction={() => router.push('/(tabs)/thoughts' as any)}
+          />
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={{ marginHorizontal: -hPad }}
+            contentContainerStyle={[s.hRow, { paddingHorizontal: hPad }]}
+          >
+            {RITUAL_CARDS.map((card) => (
+              <TactileCardButton
+                key={card.id}
+                onPress={() => openTodayWithPrompt(card.prompt, card.mood)}
+                contentStyle={[s.ritualCard, { width: ritualCardWidth }]}
+              >
+                <View style={[s.ritualImageBox, { backgroundColor: card.imageBg }]}>
+                  <Image
+                    source={card.image}
+                    style={s.ritualImage}
+                    contentFit="cover"
+                    transition={220}
+                  />
+                </View>
+
+                <View style={s.ritualBody}>
+                  <AppText style={s.ritualTitle} numberOfLines={1}>
+                    {card.title}
+                  </AppText>
+                  <AppText style={s.ritualHandwriting} numberOfLines={2}>
+                    &ldquo;{card.subtitle}&rdquo;
+                  </AppText>
+                </View>
+              </TactileCardButton>
+            ))}
+
+            {/* Blank Stream Card */}
+            <TactileCardButton
+              onPress={() => router.push(`/thoughts/${todayStr}` as any)}
+              contentStyle={[
+                s.blankRitualCard,
+                {
+                  width: isSmallPhone ? 136 : 148,
+                  backgroundColor: colors.primarySoft,
+                  borderColor: colors.primaryBorder,
+                },
+              ]}
+            >
+              <View style={[s.blankPlusCircle, { backgroundColor: colors.primary }]}>
+                <Feather name="plus" size={20} color={colors.textOnPrimary} />
+              </View>
+              <AppText variant="label" color={colors.primaryText} style={{ fontFamily: FontFamily.semiBold }}>
+                Blank Page
+              </AppText>
+              <AppText variant="caption" color={Colors.textSecondary} align="center">
+                Write freely without a prompt
+              </AppText>
+            </TactileCardButton>
+          </ScrollView>
+        </FadeSlideView>
+
+        {/* ── 5. Minimal Readable Weekly Recap ── */}
+        <FadeSlideView delay={240} style={s.sectionGap}>
+          <WeeklyRecapCard
+            stats={stats}
+            days={days}
+            isSmallPhone={isSmallPhone}
+            onOpenDay={(dayDate) => router.push(`/thoughts/${dayDate}` as any)}
+            onOpenTopPerson={(personId) => router.push(`/people/${personId}` as any)}
+            onOpenTopTag={(tag) =>
+              router.push({ pathname: '/(tabs)/thoughts' as any, params: { tag } })
+            }
+          />
+        </FadeSlideView>
 
         {/* Space for floating tab bar */}
         <View style={{ height: getSafeBottomPadding(insets.bottom, 108, 136, 124) }} />
@@ -249,95 +384,183 @@ export default function HomeTab() {
   );
 }
 
-const CARD_W = 160;
-
 const s = StyleSheet.create({
-  safe:   { flex: 1, backgroundColor: Colors.background },
-  scroll: { paddingTop: Spacing[5], flexGrow: 1 },
+  safe: { flex: 1, backgroundColor: Colors.background },
+  scroll: { paddingTop: Spacing[4], flexGrow: 1 },
 
-  // Greeting
-  greeting:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing[5] },
-  greetLeft: { flex: 1, gap: 2 },
-  greetName: { letterSpacing: -0.5 },
+  masthead: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: Spacing[3],
+    marginBottom: Spacing[5],
+  },
+  mastheadLeft: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  dateEyebrow: {
+    fontFamily: FontFamily.semiBold,
+    fontSize: 11,
+    letterSpacing: 0.9,
+  },
+  greetName: {
+    fontFamily: FontFamily.editorial,
+    fontSize: 28,
+    lineHeight: 34,
+    letterSpacing: -0.5,
+    color: Colors.text,
+  },
 
-  // Date strip
-  dateRow:       { flexDirection: 'row', justifyContent: 'space-between', marginBottom: Spacing[6] },
-  dateCell:      { flex: 1, alignItems: 'center', paddingVertical: Spacing[2], borderRadius: Radius.full, gap: 2 },
-  dateCellActive:{ backgroundColor: Colors.primary },
-
-  // Section header
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing[3] },
-
-  // Journal h-scroll
-  hScroll:     { marginHorizontal: -Spacing[5] },
-  hRow:        { flexDirection: 'row', gap: Spacing[3], paddingHorizontal: Spacing[5] },
-  journalCard: { width: CARD_W, minHeight: 160, gap: Spacing[2], marginBottom: Spacing[5] },
-  addCard:     {
-    backgroundColor: Colors.surface,
+  reminderStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[2],
     borderRadius: Radius.xl,
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    borderStyle: 'dashed',
+    borderWidth: 1,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[2],
+    marginBottom: Spacing[4],
+  },
+  reminderIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: Spacing[5],
   },
 
-  // Mood
-  moodCard:  { marginBottom: Spacing[6], gap: Spacing[3] },
-  moodRow:   { flexDirection: 'row', justifyContent: 'space-between', height: 160, alignItems: 'flex-end' },
-  moodCol:   { flex: 1, alignItems: 'center', gap: Spacing[2] },
-  moodTrack: {
-    flex: 1,
-    width: 44,
-    backgroundColor: Colors.surfaceAlt,
-    borderRadius: Radius['3xl'],
-    justifyContent: 'flex-end',
-    overflow: 'hidden',
+  heroOuter: {
+    marginBottom: Spacing[5],
   },
-  moodFill:  { borderRadius: Radius['3xl'], width: '100%', minHeight: 24 },
-  moodPct:   { textAlign: 'center', paddingBottom: 4 },
-
-  // Quick cards
-  quickCard:   { width: CARD_W, minHeight: 120, gap: Spacing[2] },
-  quickFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: Spacing[2] },
-
-  // Thought stream feature banner
-  thoughtStreamCard: {
+  heroCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: Colors.surface,
-    padding: Spacing[4],
     borderRadius: Radius['2xl'],
-    borderWidth: 1.5,
+    padding: Spacing[4],
+    borderWidth: 1,
     borderColor: '#ECEAE4',
-    marginBottom: Spacing[6],
     gap: Spacing[3],
     ...Shadow.sm,
   },
-  thoughtStreamLeft: {
+  heroLeftCol: {
     flex: 1,
-    gap: 4,
+    minWidth: 0,
+    gap: Spacing[2],
+    alignItems: 'flex-start',
   },
-  thoughtStreamBadge: {
+  heroHeading: {
+    fontFamily: FontFamily.editorialSemi,
+    fontSize: 22,
+    lineHeight: 28,
+    color: Colors.text,
+    letterSpacing: -0.4,
+  },
+  heroSubcopy: {
+    fontSize: FontSize.sm,
+    lineHeight: 19,
+  },
+  heroPrimaryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.primary,
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
     borderRadius: Radius.full,
-    gap: 4,
-    marginBottom: 2,
+    marginTop: 2,
   },
-  viewAllDaysBtn: {
+  heroPrimaryBtnText: {
+    fontFamily: FontFamily.bold,
+    fontSize: 13,
+  },
+  heroArtFrame: {
+    width: 112,
+    height: 128,
+    borderRadius: Radius.xl,
+    overflow: 'hidden',
+    backgroundColor: '#F5F3EE',
+    borderWidth: 1,
+    borderColor: '#ECEAE4',
+    flexShrink: 0,
+  },
+  heroArtImg: {
+    width: '100%',
+    height: '100%',
+  },
+
+  sectionGap: {
+    marginBottom: Spacing[5],
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing[3],
+  },
+  sectionTitle: {
+    fontFamily: FontFamily.editorialSemi,
+    fontSize: 20,
+    lineHeight: 25,
+    color: Colors.text,
+    letterSpacing: -0.3,
+  },
+
+  hRow: {
+    flexDirection: 'row',
+    gap: Spacing[3],
+    paddingBottom: Spacing[1],
+  },
+  ritualCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: Radius['2xl'],
+    borderWidth: 1,
+    borderColor: '#ECEAE4',
+    overflow: 'hidden',
+    ...Shadow.xs,
+  },
+  ritualImageBox: {
+    width: '100%',
+    height: 112,
+  },
+  ritualImage: {
+    width: '100%',
+    height: '100%',
+  },
+  ritualBody: {
+    padding: Spacing[3],
+    gap: 4,
+    minHeight: 84,
+  },
+  ritualTitle: {
+    fontFamily: FontFamily.semiBold,
+    fontSize: FontSize.md,
+    color: Colors.text,
+  },
+  ritualHandwriting: {
+    fontFamily: FontFamily.handwriting,
+    fontSize: 14,
+    lineHeight: 18,
+    color: Colors.textSecondary,
+  },
+  blankRitualCard: {
+    minHeight: 196,
+    borderRadius: Radius['2xl'],
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    padding: Spacing[4],
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.primaryLight,
-    paddingHorizontal: Spacing[3],
-    paddingVertical: Spacing[2],
-    borderRadius: Radius.xl,
-    gap: 2,
+    gap: Spacing[2],
+  },
+  blankPlusCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing[1],
   },
 });

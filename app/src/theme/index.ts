@@ -5,14 +5,18 @@
 
 // ─── Colors ───────────────────────────────────────────────────────────────────
 export const Colors = {
-  // Brand
-  primary: '#F5A623',       // Amber — main CTA, active state
-  primaryDark: '#E09518',   // Pressed amber
-  primaryLight: '#FDF3E0',  // Amber tint — backgrounds, chips
-  primaryText: '#7A4C00',   // Text on amber backgrounds
+  // Brand — Calm Botanical Sage Green (edit here to retheme the whole app)
+  primary: '#4C7C59',       // Calm sage green — main CTA, Today card, active state
+  primaryDark: '#355C40',   // Deep moss green — pressed state & active icons
+  primaryLight: '#E6F0E8',  // Soft mist green tint — badges, chips, highlights
+  primaryText: '#24422D',   // Rich forest text on soft green backgrounds
+  primarySoft: '#F4F8F5',   // Feather-light green tint — subtle strips & chip bg
+  primaryBorder: '#C7DBC9', // Muted sage border — subtle chip/card outlines
+  primaryTint16: 'rgba(76, 124, 89, 0.16)', // Mention highlight & subtle accent
+  primaryTint25: 'rgba(76, 124, 89, 0.25)', // Selection overlay & glow
 
   // Neutrals
-  background: '#FAF8F5',    // Warm cream — screen background
+  background: '#FAF8F5',    // Warm linen cream — screen background
   surface: '#FFFFFF',       // Cards, inputs, modals
   surfaceAlt: '#F3F1EE',    // Subtle section background
 
@@ -24,14 +28,14 @@ export const Colors = {
 
   // Borders
   border: '#EBEBEB',
-  borderFocus: '#F5A623',
+  borderFocus: '#4C7C59',
 
   // Semantic
-  success: '#5B9E5F',
-  successLight: '#EDF5ED',
+  success: '#4C7C59',
+  successLight: '#E6F0E8',
   error: '#E05252',
   errorLight: '#FDEAEA',
-  warning: '#F5A623',
+  warning: '#D99B38',
   info: '#5B8DB8',
 
   // Tag palette (chips / badges)
@@ -39,18 +43,18 @@ export const Colors = {
   tagPinkText: '#C4675A',
   tagPurple: '#EDE8F7',
   tagPurpleText: '#6E5AAB',
-  tagGreen: '#E8F3E8',
-  tagGreenText: '#4A8B4A',
+  tagGreen: '#E6F0E8',
+  tagGreenText: '#355C40',
   tagAmber: '#FDF3E0',
   tagAmberText: '#7A4C00',
   tagBlue: '#E8EFF8',
   tagBlueText: '#3D6B9E',
 
   // Emotions
-  emotionHappy: '#F5A623',
-  emotionSad: '#6B3E3E',
-  emotionCalm: '#7A9A5B',
-  emotionAnxious: '#8A8A8A',
+  emotionHappy: '#E2A03F',
+  emotionSad: '#5B87B0',
+  emotionCalm: '#4C7C59',
+  emotionAnxious: '#75736F',
 
   // Overlay
   overlay: 'rgba(0,0,0,0.4)',
@@ -59,17 +63,159 @@ export const Colors = {
   transparent: 'transparent',
 } as const;
 
+export type ThemeColors = {
+  -readonly [K in keyof typeof Colors]: string;
+};
+
+export interface MoodThemeAccent {
+  primary: string;
+  primaryDark: string;
+  primaryLight: string;
+  primaryText: string;
+  primarySoft: string;
+  primaryBorder: string;
+  primaryTint16: string;
+  primaryTint25: string;
+  background: string;
+}
+
+export const MOOD_THEME_PALETTES: Record<string, MoodThemeAccent> = {
+  calm: {
+    primary: '#4C7C59',
+    primaryDark: '#355C40',
+    primaryLight: '#E6F0E8',
+    primaryText: '#24422D',
+    primarySoft: '#F4F8F5',
+    primaryBorder: '#C7DBC9',
+    primaryTint16: 'rgba(76, 124, 89, 0.16)',
+    primaryTint25: 'rgba(76, 124, 89, 0.25)',
+    background: '#F8FAF8',
+  },
+  happy: {
+    primary: '#D98C1A',
+    primaryDark: '#A86808',
+    primaryLight: '#FDF2DC',
+    primaryText: '#613B00',
+    primarySoft: '#FCF8EE',
+    primaryBorder: '#EAD5AC',
+    primaryTint16: 'rgba(217, 140, 26, 0.16)',
+    primaryTint25: 'rgba(217, 140, 26, 0.25)',
+    background: '#FCFBF7',
+  },
+  grateful: {
+    primary: '#C87236',
+    primaryDark: '#9A511F',
+    primaryLight: '#FBECE1',
+    primaryText: '#5E2E0C',
+    primarySoft: '#FCF6F0',
+    primaryBorder: '#EACBB5',
+    primaryTint16: 'rgba(200, 114, 54, 0.16)',
+    primaryTint25: 'rgba(200, 114, 54, 0.25)',
+    background: '#FCF9F6',
+  },
+  excited: {
+    primary: '#D95D39',
+    primaryDark: '#AD4122',
+    primaryLight: '#FCEAE4',
+    primaryText: '#68210E',
+    primarySoft: '#FDF5F2',
+    primaryBorder: '#EFC6B9',
+    primaryTint16: 'rgba(217, 93, 57, 0.16)',
+    primaryTint25: 'rgba(217, 93, 57, 0.25)',
+    background: '#FCF9F8',
+  },
+  loved: {
+    primary: '#C9516E',
+    primaryDark: '#9C3750',
+    primaryLight: '#FBE9EE',
+    primaryText: '#631A2D',
+    primarySoft: '#FDF4F6',
+    primaryBorder: '#ECC3CD',
+    primaryTint16: 'rgba(201, 81, 110, 0.16)',
+    primaryTint25: 'rgba(201, 81, 110, 0.25)',
+    background: '#FCF8F9',
+  },
+  tired: {
+    primary: '#646B85',
+    primaryDark: '#484E64',
+    primaryLight: '#ECEEF4',
+    primaryText: '#2D3245',
+    primarySoft: '#F5F6F9',
+    primaryBorder: '#CCD1DF',
+    primaryTint16: 'rgba(100, 107, 133, 0.16)',
+    primaryTint25: 'rgba(100, 107, 133, 0.25)',
+    background: '#F8F9FB',
+  },
+  sad: {
+    primary: '#4B78A3',
+    primaryDark: '#33587B',
+    primaryLight: '#E7F0F8',
+    primaryText: '#1E3954',
+    primarySoft: '#F3F7FB',
+    primaryBorder: '#C3D7EA',
+    primaryTint16: 'rgba(75, 120, 163, 0.16)',
+    primaryTint25: 'rgba(75, 120, 163, 0.25)',
+    background: '#F7FAFC',
+  },
+  anxious: {
+    primary: '#6E6C67',
+    primaryDark: '#4F4D49',
+    primaryLight: '#EEEDE9',
+    primaryText: '#33322F',
+    primarySoft: '#F6F5F3',
+    primaryBorder: '#D4D2CB',
+    primaryTint16: 'rgba(110, 108, 103, 0.16)',
+    primaryTint25: 'rgba(110, 108, 103, 0.25)',
+    background: '#F9F8F6',
+  },
+  angry: {
+    primary: '#C44B45',
+    primaryDark: '#99322D',
+    primaryLight: '#FCEAE9',
+    primaryText: '#611916',
+    primarySoft: '#FDF4F4',
+    primaryBorder: '#ECC1BF',
+    primaryTint16: 'rgba(196, 75, 69, 0.16)',
+    primaryTint25: 'rgba(196, 75, 69, 0.25)',
+    background: '#FCF8F8',
+  },
+};
+
+export function buildColorsForMood(mood?: string | null): ThemeColors {
+  const accent = (mood && MOOD_THEME_PALETTES[mood]) || MOOD_THEME_PALETTES.calm;
+  return {
+    ...Colors,
+    ...accent,
+    borderFocus: accent.primary,
+    success: accent.primary,
+    successLight: accent.primaryLight,
+    tagGreen: accent.primaryLight,
+    tagGreenText: accent.primaryDark,
+  };
+}
+
 // ─── Typography ───────────────────────────────────────────────────────────────
+// Clean neo-grotesque product sans (Uber Move inspired) — edit here to retheme all text app-wide
+const PRIMARY_FONT = {
+  extraBold: 'PlusJakartaSans_800ExtraBold',
+  bold:      'PlusJakartaSans_700Bold',
+  semiBold:  'PlusJakartaSans_600SemiBold',
+  medium:    'PlusJakartaSans_500Medium',
+  regular:   'PlusJakartaSans_400Regular',
+  light:     'PlusJakartaSans_300Light',
+  italic:    'PlusJakartaSans_400Regular_Italic',
+} as const;
+
 export const FontFamily = {
-  black:        'Outfit_800ExtraBold',
-  bold:         'Outfit_700Bold',
-  semiBold:     'Outfit_600SemiBold',
-  medium:       'Outfit_500Medium',
-  regular:      'Outfit_400Regular',
-  light:        'Outfit_300Light',
-  editorial:    'Fraunces_700Bold',
-  editorialSemi:'Fraunces_600SemiBold',
-  handwriting:  'PatrickHand_400Regular',
+  black:        PRIMARY_FONT.extraBold,
+  bold:         PRIMARY_FONT.bold,
+  semiBold:     PRIMARY_FONT.semiBold,
+  medium:       PRIMARY_FONT.medium,
+  regular:      PRIMARY_FONT.regular,
+  light:        PRIMARY_FONT.light,
+  editorial:    PRIMARY_FONT.bold,
+  editorialSemi:PRIMARY_FONT.semiBold,
+  handwriting:  PRIMARY_FONT.italic,
 } as const;
 
 export const FontSize = {

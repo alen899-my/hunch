@@ -1,12 +1,21 @@
 const jwt = require('jsonwebtoken');
 
-const SECRET = process.env.JWT_SECRET;
 const EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
-// Sign a JWT with the user's id and email
-const signToken = (payload) => jwt.sign(payload, SECRET, { expiresIn: EXPIRES_IN });
+const getJwtSecret = () => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || secret.length < 16) {
+    throw new Error('JWT_SECRET must be set and at least 16 characters long');
+  }
+  return secret;
+};
 
-// Verify and decode — throws if invalid
-const verifyToken = (token) => jwt.verify(token, SECRET);
+// Sign a JWT with pinned HS256 algorithm
+const signToken = (payload) =>
+  jwt.sign(payload, getJwtSecret(), { algorithm: 'HS256', expiresIn: EXPIRES_IN });
+
+// Verify and decode strictly with HS256 — throws if invalid
+const verifyToken = (token) =>
+  jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] });
 
 module.exports = { signToken, verifyToken };

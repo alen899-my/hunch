@@ -3,11 +3,13 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   StyleSheet,
+  StyleProp,
   ViewStyle,
   TextStyle,
   View,
 } from 'react-native';
 import { Colors, FontFamily, FontSize, Radius, Shadow, Size } from '@/theme';
+import { useThemeColors } from '@/hooks/use-mood-theme';
 import { AppText } from './AppText';
 
 type Variant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
@@ -23,7 +25,7 @@ interface ButtonProps {
   fullWidth?: boolean;
   leftIcon?: React.ReactNode;
   rightIcon?: React.ReactNode;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
 }
 
 const variantConfig: Record<Variant, { bg: string; text: string; border?: string }> = {
@@ -52,7 +54,13 @@ export function Button({
   rightIcon,
   style,
 }: ButtonProps) {
-  const vc = variantConfig[variant];
+  const colors = useThemeColors();
+  const vc =
+    variant === 'primary'
+      ? { bg: colors.primary, text: colors.textOnPrimary }
+      : variant === 'outline'
+      ? { bg: Colors.transparent, text: colors.primary, border: colors.primary }
+      : variantConfig[variant];
   const sc = sizeConfig[size];
   const isDisabled = disabled || loading;
 
@@ -84,7 +92,12 @@ export function Button({
           <AppText
             variant="bodyMd"
             color={vc.text}
-            style={{ fontSize: sc.fontSize, fontFamily: FontFamily.semiBold }}
+            numberOfLines={1}
+            style={{
+              fontSize: sc.fontSize,
+              fontFamily: FontFamily.semiBold,
+              flexShrink: 1,
+            }}
           >
             {label}
           </AppText>
@@ -100,8 +113,16 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
     alignItems: 'center',
     justifyContent: 'center',
+    minWidth: 0,
   },
   fullWidth: { alignSelf: 'stretch' },
   disabled: { opacity: 0.5 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    minWidth: 0,
+    flexShrink: 1,
+  },
 });

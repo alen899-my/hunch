@@ -8,6 +8,9 @@ export interface Person {
   handle: string;
   avatar_url?: string | null;
   avatar_key?: string | null;
+  relationship?: string | null;
+  notes?: string | null;
+  birthday?: string | null;
   mention_count: number;
   last_mentioned_at?: string | null;
   created_at: string;
@@ -16,10 +19,17 @@ export interface Person {
 
 export interface PersonMentionThought extends Thought {
   mentioned_at?: string;
+  co_mentioned_ids?: string[];
 }
 
 export const getPeople = (token?: string | null) =>
   apiRequest<{ people: Person[] }>('/people', { token });
+
+export const searchPeople = (q: string, limit = 15, token?: string | null) =>
+  apiRequest<{ people: Person[] }>(
+    `/people?q=${encodeURIComponent(q)}&limit=${encodeURIComponent(String(limit))}`,
+    { token }
+  );
 
 export const getPersonDetails = (id: string, token?: string | null) =>
   apiRequest<{ person: Person; mentions: PersonMentionThought[] }>(`/people/${id}`, { token });
@@ -30,6 +40,9 @@ export const createPerson = (
     handle?: string;
     avatarUrl?: string | null;
     avatarKey?: string | null;
+    relationship?: string | null;
+    notes?: string | null;
+    birthday?: string | null;
   },
   token?: string | null
 ) =>
@@ -46,6 +59,9 @@ export const updatePerson = (
     handle?: string;
     avatarUrl?: string | null;
     avatarKey?: string | null;
+    relationship?: string | null;
+    notes?: string | null;
+    birthday?: string | null;
   },
   token?: string | null
 ) =>

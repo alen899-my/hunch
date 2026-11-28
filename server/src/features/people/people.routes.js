@@ -1,14 +1,19 @@
 const router = require('express').Router();
 const controller = require('./people.controller');
-const { createPersonRules, updatePersonRules, personIdRules } = require('./people.validator');
+const {
+  listPeopleRules,
+  createPersonRules,
+  updatePersonRules,
+  personIdRules,
+} = require('./people.validator');
 const { validate } = require('../../middlewares/validate.middleware');
-const { optionalOrGuestProtect } = require('../../middlewares/auth.middleware');
+const { protect } = require('../../middlewares/auth.middleware');
 
-// People routes are protected (with seamless guest fallback just like thoughts)
-router.use(optionalOrGuestProtect);
+// All people endpoints require strict authentication
+router.use(protect);
 
 // GET /api/people - List all created people with mention counts
-router.get('/', controller.listPeople);
+router.get('/', listPeopleRules, validate, controller.listPeople);
 
 // GET /api/people/:id - Person details and all thoughts mentioning them
 router.get('/:id', personIdRules, validate, controller.getPersonDetails);

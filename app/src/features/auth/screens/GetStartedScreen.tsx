@@ -11,12 +11,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppText, Button } from '@/components/ui';
 import { Colors, Spacing, FontSize, FontFamily, Shadow } from '@/theme';
+import { useThemeColors } from '@/hooks/use-mood-theme';
 import { useAuth } from '@/hooks/use-auth';
 import { getSafeBottomPadding } from '@/utils/safe-area';
 
 const TABLET = 600;
 
 export default function GetStartedScreen() {
+  const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isTablet = width >= TABLET;
@@ -80,7 +82,7 @@ export default function GetStartedScreen() {
               onPress={() => router.push('/signup')}
               variant="primary"
               size="lg"
-              style={styles.ctaButton}
+              style={[styles.ctaButton, { shadowColor: colors.primary }]}
             />
 
             <TouchableOpacity
@@ -91,7 +93,7 @@ export default function GetStartedScreen() {
               <AppText variant="body" style={styles.loginText}>
                 Already have an account?{' '}
               </AppText>
-              <AppText variant="bodyMd" style={styles.loginLink}>
+              <AppText variant="bodyMd" style={[styles.loginLink, { color: colors.primary }]}>
                 Sign In
               </AppText>
             </TouchableOpacity>

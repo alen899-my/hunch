@@ -15,9 +15,12 @@ const createTables = `
     google_id   TEXT UNIQUE,
     avatar      TEXT,
     provider    TEXT NOT NULL DEFAULT 'local', -- 'local' | 'google'
+    token_version INT NOT NULL DEFAULT 0,
     created_at  TIMESTAMPTZ DEFAULT NOW(),
     updated_at  TIMESTAMPTZ DEFAULT NOW()
   );
+
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INT NOT NULL DEFAULT 0;
 
   CREATE TABLE IF NOT EXISTS thoughts (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -32,16 +35,31 @@ const createTables = `
   CREATE INDEX IF NOT EXISTS idx_thoughts_user_day ON thoughts(user_id, day_date);
   CREATE INDEX IF NOT EXISTS idx_thoughts_user_day_created ON thoughts(user_id, day_date, created_at DESC);
 
+  ALTER TABLE thoughts ADD COLUMN IF NOT EXISTS is_starred BOOLEAN NOT NULL DEFAULT FALSE;
+  ALTER TABLE thoughts ADD COLUMN IF NOT EXISTS mood TEXT;
+  ALTER TABLE thoughts ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}';
+  ALTER TABLE thoughts ADD COLUMN IF NOT EXISTS reply_to_id UUID REFERENCES thoughts(id) ON DELETE SET NULL;
+
+  CREATE INDEX IF NOT EXISTS idx_thoughts_tags ON thoughts USING GIN (tags);
+  CREATE INDEX IF NOT EXISTS idx_thoughts_user_starred ON thoughts(user_id, is_starred) WHERE is_starred = TRUE;
+
   CREATE TABLE IF NOT EXISTS people (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id     UUID REFERENCES users(id) ON DELETE CASCADE,
-    name        TEXT NOT NULL,
-    handle      TEXT NOT NULL,
-    avatar_url  TEXT,
-    avatar_key  TEXT,
-    created_at  TIMESTAMPTZ DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ DEFAULT NOW()
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id      UUID REFERENCES users(id) ON DELETE CASCADE,
+    name         TEXT NOT NULL,
+    handle       TEXT NOT NULL,
+    avatar_url   TEXT,
+    avatar_key   TEXT,
+    relationship TEXT,
+    notes        TEXT,
+    birthday     TEXT,
+    created_at   TIMESTAMPTZ DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ DEFAULT NOW()
   );
+
+  ALTER TABLE people ADD COLUMN IF NOT EXISTS relationship TEXT;
+  ALTER TABLE people ADD COLUMN IF NOT EXISTS notes TEXT;
+  ALTER TABLE people ADD COLUMN IF NOT EXISTS birthday TEXT;
 
   CREATE INDEX IF NOT EXISTS idx_people_user ON people(user_id);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_people_user_handle ON people(user_id, LOWER(handle));

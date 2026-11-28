@@ -7,36 +7,50 @@
     "icon": "./assets/images/icon.png",
     "scheme": "hunch",
     "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "com.hunch.app",
-      "icon": "./assets/expo.icon",
+      "icon": "./assets/images/icon.png",
+      "buildNumber": "1",
+      "requireFullScreen": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Allow Hunch to access your camera to capture photos and videos for your thoughts.",
         "NSMicrophoneUsageDescription": "Allow Hunch to access your microphone for voice notes.",
-        "NSPhotoLibraryUsageDescription": "Allow Hunch to access your photos to attach them to your thoughts."
+        "NSPhotoLibraryUsageDescription": "Allow Hunch to access your photos to attach them to your thoughts.",
+        "NSPhotoLibraryAddUsageDescription": "Allow Hunch to save photos to your library.",
+        "UIBackgroundModes": ["audio"]
       }
     },
     "android": {
       "package": "com.hunch.app",
+      "versionCode": 1,
+      "compileSdkVersion": 35,
+      "targetSdkVersion": 35,
       "adaptiveIcon": {
-        "backgroundColor": "#FAF8F5",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "monochromeImage": "./assets/images/android-icon-monochrome.png",
+        "backgroundColor": "#FAF8F5"
       },
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
-      "predictiveBackGestureEnabled": false
+      "allowBackup": false,
+      "predictiveBackGestureEnabled": false,
+      "blockedPermissions": ["com.google.android.gms.permission.AD_ID"]
     },
     "web": {
       "output": "server",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon.png",
+      "bundler": "metro"
     },
     "plugins": [
       "expo-router",
@@ -45,21 +59,29 @@
         {
           "backgroundColor": "#FAF8F5",
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "imageWidth": 120,
+          "resizeMode": "contain",
+          "dark": {
+            "backgroundColor": "#1A1A1A",
+            "image": "./assets/images/icon.png",
+            "imageWidth": 120
+          }
         }
       ],
       [
         "expo-camera",
         {
           "cameraPermission": "Allow Hunch to access your camera to capture photos and videos for your thoughts.",
-          "microphonePermission": "Allow Hunch to access your microphone for voice notes."
+          "microphonePermission": "Allow Hunch to access your microphone for voice notes.",
+          "recordAudioAndroid": true
         }
       ],
       [
         "expo-media-library",
         {
           "photosPermission": "Allow Hunch to access your photos to attach them to your thoughts.",
-          "savePhotosPermission": "Allow Hunch to save photos to your library."
+          "savePhotosPermission": "Allow Hunch to save photos to your library.",
+          "isAccessMediaLocationEnabled": true
         }
       ],
       [
@@ -79,6 +101,7 @@
       "eas": {
         "projectId": "0e21c852-a68d-4768-9fbd-9927514ebb52"
       }
-    }
+    },
+    "owner": "hunch"
   }
 }

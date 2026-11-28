@@ -16,6 +16,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { AppText, Button } from '@/components/ui';
 import { Colors, Spacing, Radius, FontFamily, FontSize, Shadow } from '@/theme';
 import { usePeople, type SavePersonInput } from '@/hooks/use-people';
+import { useThemeColors } from '@/hooks/use-mood-theme';
 import type { Person } from '@/services/people.service';
 import { AddEditPersonModal } from '../components/AddEditPersonModal';
 import { getSafeBottomPadding } from '@/utils/safe-area';
@@ -41,10 +42,12 @@ function formatLastMentionDate(isoStr?: string | null): string {
 }
 
 export default function PeopleListScreen() {
+  const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isTablet = width >= TABLET;
   const isSmallPhone = width < 370;
+  const hPad = isTablet ? Spacing[8] : isSmallPhone ? Spacing[4] : Spacing[5];
   const maxW = isTablet ? 600 : undefined;
 
   const { people, loading, fetchPeople, addPerson } = usePeople();
@@ -79,11 +82,12 @@ export default function PeopleListScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top']}>
       {/* ── Header ── */}
       <View
         style={[
           styles.header,
+          { paddingHorizontal: hPad },
           maxW ? { maxWidth: maxW, alignSelf: 'center', width: '100%' } : null,
         ]}
       >
@@ -99,7 +103,7 @@ export default function PeopleListScreen() {
         <TouchableOpacity
           onPress={() => setShowAddModal(true)}
           activeOpacity={0.85}
-          style={styles.addHeaderBtn}
+          style={[styles.addHeaderBtn, { backgroundColor: colors.primary }]}
         >
           <Ionicons name="add" size={18} color={Colors.white} />
           <AppText variant="label" style={styles.addHeaderBtnText}>
@@ -113,6 +117,7 @@ export default function PeopleListScreen() {
         <View
           style={[
             styles.searchWrap,
+            { paddingHorizontal: hPad },
             maxW ? { maxWidth: maxW, alignSelf: 'center', width: '100%' } : null,
           ]}
         >
@@ -141,20 +146,21 @@ export default function PeopleListScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.scrollContent,
+          { paddingHorizontal: hPad },
           maxW ? { maxWidth: maxW, alignSelf: 'center', width: '100%' } : null,
         ]}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={Colors.primary}
-            colors={[Colors.primary]}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
           />
         }
       >
         {loading && people.length === 0 ? (
           <View style={styles.loadingState}>
-            <ActivityIndicator size="small" color={Colors.primary} />
+            <ActivityIndicator size="small" color={colors.primary} />
           </View>
         ) : filteredPeople.length > 0 ? (
           <View style={styles.listCol}>
@@ -185,8 +191,8 @@ export default function PeopleListScreen() {
           </View>
         ) : (
           <View style={styles.emptyContainer}>
-            <View style={styles.emptyIconCircle}>
-              <Ionicons name="people" size={40} color={Colors.primary} />
+            <View style={[styles.emptyIconCircle, { backgroundColor: colors.primaryLight }]}>
+              <Ionicons name="people" size={40} color={colors.primary} />
             </View>
             <AppText style={styles.emptyTitle}>No people added yet</AppText>
             <AppText
@@ -229,6 +235,7 @@ function PersonCard({
   person: Person;
   isSmallPhone: boolean;
 }) {
+  const colors = useThemeColors();
   const mentionCount = person.mention_count ?? 0;
 
   return (
@@ -237,7 +244,7 @@ function PersonCard({
       onPress={() => router.push(`/people/${person.id}` as any)}
       style={styles.card3D}
     >
-      <View style={styles.cardInner}>
+      <View style={[styles.cardInner, isSmallPhone && styles.cardInnerSmall]}>
         {/* Left: Profile Picture or Solid Profile Icon Badge */}
         {person.avatar_url ? (
           <Image
@@ -262,37 +269,55 @@ function PersonCard({
             <View style={styles.nameCol}>
               <AppText
                 variant="title"
-                numberOfLines={1}
-                style={[styles.personName, isSmallPhone && { fontSize: FontSize.md }]}
+                numberOfLines={2}
+                style={[styles.personName, isSmallPhone && styles.personNameSmall]}
               >
                 {person.name}
               </AppText>
-              <AppText variant="caption" color={Colors.textMuted} numberOfLines={1}>
-                @{person.handle}
-              </AppText>
+              <View style={styles.handleRow}>
+                <AppText
+                  variant="caption"
+                  color={Colors.textMuted}
+                  numberOfLines={1}
+                  style={styles.handleText}
+                >
+                  @{person.handle}
+                </AppText>
+                {Boolean(person.relationship) && (
+                  <View style={styles.relBadge}>
+                    <AppText variant="caption" numberOfLines={1} style={styles.relBadgeText}>
+                      {person.relationship}
+                    </AppText>
+                  </View>
+                )}
+              </View>
             </View>
 
             {/* Mention Count Pill */}
             <View
               style={[
                 styles.mentionCountBadge,
-                mentionCount > 0 && styles.mentionCountBadgeActive,
+                mentionCount > 0 && { backgroundColor: colors.primaryLight },
+                isSmallPhone && styles.mentionCountBadgeCompact,
               ]}
             >
               <AppText
                 variant="caption"
                 style={[
                   styles.mentionCountNum,
-                  mentionCount > 0 && styles.mentionCountNumActive,
+                  isSmallPhone && { fontSize: 11 },
+                  mentionCount > 0 && { color: colors.primaryDark },
                 ]}
               >
                 {mentionCount}
               </AppText>
               <AppText
                 variant="caption"
+                numberOfLines={1}
                 style={[
                   styles.mentionCountLabel,
-                  mentionCount > 0 && styles.mentionCountLabelActive,
+                  isSmallPhone && { fontSize: 10 },
+                  mentionCount > 0 && { color: colors.primaryText },
                 ]}
               >
                 {mentionCount === 1 ? 'mention' : 'mentions'}
@@ -301,10 +326,20 @@ function PersonCard({
           </View>
 
           <View style={styles.cardBottomRow}>
-            <AppText variant="caption" color={Colors.textSecondary} numberOfLines={1} style={styles.lastMentionText}>
+            <AppText
+              variant="caption"
+              color={Colors.textSecondary}
+              numberOfLines={2}
+              style={styles.lastMentionText}
+            >
               {formatLastMentionDate(person.last_mentioned_at)}
             </AppText>
-            <Feather name="chevron-right" size={15} color={Colors.textMuted} />
+            <Feather
+              name="chevron-right"
+              size={15}
+              color={Colors.textMuted}
+              style={{ flexShrink: 0 }}
+            />
           </View>
         </View>
       </View>
@@ -328,6 +363,7 @@ const styles = StyleSheet.create({
   },
   headerTextCol: {
     flex: 1,
+    minWidth: 0,
     gap: 2,
   },
   mainTitle: {
@@ -340,6 +376,7 @@ const styles = StyleSheet.create({
   addHeaderBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexShrink: 0,
     gap: 4,
     backgroundColor: Colors.primary,
     paddingHorizontal: Spacing[4],
@@ -370,6 +407,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
+    minWidth: 0,
     fontFamily: FontFamily.regular,
     fontSize: FontSize.sm,
     color: Colors.text,
@@ -407,6 +445,7 @@ const styles = StyleSheet.create({
 
   // ── Similar 3D Tactile Card as ThoughtsListScreen ──
   card3D: {
+    width: '100%',
     backgroundColor: Colors.surface,
     borderRadius: Radius['2xl'],
     borderWidth: 1.5,
@@ -424,11 +463,16 @@ const styles = StyleSheet.create({
     gap: Spacing[3],
     alignItems: 'center',
   },
+  cardInnerSmall: {
+    padding: 10,
+    gap: 10,
+  },
   avatarBadge: {
     width: 62,
     height: 62,
     borderRadius: Radius.lg,
     backgroundColor: Colors.surfaceAlt,
+    flexShrink: 0,
   },
   solidProfileBadge: {
     width: 62,
@@ -437,13 +481,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#26221D',
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   avatarBadgeSmall: {
-    width: 52,
-    height: 52,
+    width: 50,
+    height: 50,
   },
   cardBody: {
     flex: 1,
+    minWidth: 0,
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 2,
@@ -456,7 +502,32 @@ const styles = StyleSheet.create({
   },
   nameCol: {
     flex: 1,
-    gap: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  handleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'wrap',
+    minWidth: 0,
+  },
+  handleText: {
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  relBadge: {
+    backgroundColor: '#F3F1EC',
+    paddingHorizontal: 7,
+    paddingVertical: 1,
+    borderRadius: Radius.full,
+    maxWidth: '100%',
+    flexShrink: 1,
+  },
+  relBadgeText: {
+    fontSize: 10,
+    fontFamily: FontFamily.semiBold,
+    color: Colors.textSecondary,
   },
   personName: {
     fontFamily: FontFamily.bold,
@@ -464,14 +535,26 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: '#241B14',
   },
+  personNameSmall: {
+    fontSize: FontSize.md,
+    lineHeight: 20,
+  },
   mentionCountBadge: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'flex-start',
+    flexShrink: 0,
+    maxWidth: '42%',
     gap: 4,
     backgroundColor: '#F3F1EC',
     borderRadius: Radius.full,
     paddingHorizontal: 10,
     paddingVertical: 4,
+  },
+  mentionCountBadgeCompact: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    gap: 3,
   },
   mentionCountBadgeActive: {
     backgroundColor: Colors.primaryLight,
@@ -500,6 +583,7 @@ const styles = StyleSheet.create({
   },
   lastMentionText: {
     flex: 1,
+    minWidth: 0,
     fontSize: 12,
   },
 

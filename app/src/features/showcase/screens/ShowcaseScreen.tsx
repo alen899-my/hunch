@@ -6,6 +6,7 @@ import {
   AppText, Button, Input, Card, Badge, Avatar, Divider, Chip,
 } from '@/components/ui';
 import { Colors, Spacing, Radius } from '@/theme';
+import { useThemeColors } from '@/hooks/use-mood-theme';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -20,11 +21,12 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export default function ShowcaseScreen() {
+  const colors = useThemeColors();
   const [inputVal, setInputVal] = useState('');
   const [chip, setChip] = useState<string | null>(null);
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
@@ -62,7 +64,7 @@ export default function ShowcaseScreen() {
               variant="primary"
               size="md"
               fullWidth={false}
-              leftIcon={<Ionicons name="add" size={18} color={Colors.textOnPrimary} />}
+              leftIcon={<Ionicons name="add" size={18} color={colors.textOnPrimary} />}
             />
             <Button
               label="Google"
@@ -107,17 +109,17 @@ export default function ShowcaseScreen() {
         <Section title="Cards">
           <Card>
             <View style={styles.cardRow}>
-              <Ionicons name="journal-outline" size={20} color={Colors.primary} />
+              <Ionicons name="journal-outline" size={20} color={colors.primary} />
               <AppText variant="title">Default Card</AppText>
             </View>
             <AppText variant="body" color={Colors.textSecondary}>
               A clean white card with soft shadow and rounded corners.
             </AppText>
           </Card>
-          <Card bg={Colors.primaryLight} shadow="xs">
+          <Card bg={colors.primaryLight} shadow="xs">
             <View style={styles.cardRow}>
-              <Ionicons name="sunny-outline" size={20} color={Colors.primaryText} />
-              <AppText variant="title" color={Colors.primaryText}>Tinted Card</AppText>
+              <Ionicons name="sunny-outline" size={20} color={colors.primaryText} />
+              <AppText variant="title" color={colors.primaryText}>Tinted Card</AppText>
             </View>
             <AppText variant="body" color={Colors.textSecondary}>
               Warm amber background card for highlights.
@@ -168,7 +170,7 @@ export default function ShowcaseScreen() {
                 icon={<Ionicons
                   name={icon}
                   size={14}
-                  color={chip === label ? Colors.textOnPrimary : Colors.textSecondary}
+                  color={chip === label ? colors.textOnPrimary : Colors.textSecondary}
                 />}
               />
             ))}
@@ -216,14 +218,14 @@ export default function ShowcaseScreen() {
         <Section title="Color Palette">
           <View style={styles.swatches}>
             {([
-              ['Primary',    Colors.primary],
-              ['Prim Light', Colors.primaryLight],
-              ['Background', Colors.background],
+              ['Primary',    colors.primary],
+              ['Prim Light', colors.primaryLight],
+              ['Background', colors.background],
               ['Surface',    Colors.surface],
               ['Text',       Colors.text],
               ['Secondary',  Colors.textSecondary],
               ['Muted',      Colors.textMuted],
-              ['Success',    Colors.success],
+              ['Success',    colors.success],
               ['Error',      Colors.error],
             ] as [string, string][]).map(([name, color]) => (
               <View key={name} style={styles.swatch}>

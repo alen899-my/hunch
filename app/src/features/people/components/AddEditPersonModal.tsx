@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText, Button, Input } from '@/components/ui';
 import { Colors, Spacing, Radius, FontFamily, FontSize, Shadow } from '@/theme';
+import { useThemeColors } from '@/hooks/use-mood-theme';
 import type { Person } from '@/services/people.service';
 import type { SavePersonInput } from '@/hooks/use-people';
 import { buildDefaultHandle } from '../utils/mentions';
@@ -35,6 +36,8 @@ interface AddEditPersonModalProps {
   onSave: (payload: SavePersonInput) => Promise<void>;
 }
 
+const RELATIONSHIPS = ['Family', 'Friend', 'Work', 'Partner', 'Other'];
+
 export function AddEditPersonModal({
   visible,
   person,
@@ -42,11 +45,15 @@ export function AddEditPersonModal({
   onClose,
   onSave,
 }: AddEditPersonModalProps) {
+  const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const isEditing = Boolean(person);
 
   const [name, setName] = useState('');
   const [handle, setHandle] = useState('');
+  const [relationship, setRelationship] = useState<string | null>(null);
+  const [notes, setNotes] = useState('');
+  const [birthday, setBirthday] = useState('');
   const [handleTouched, setHandleTouched] = useState(false);
   const [avatar, setAvatar] = useState<PickedAvatar | null>(null);
   const [avatarRemoved, setAvatarRemoved] = useState(false);
@@ -62,6 +69,9 @@ export function AddEditPersonModal({
     if (person) {
       setName(person.name);
       setHandle(person.handle);
+      setRelationship(person.relationship || null);
+      setNotes(person.notes || '');
+      setBirthday(person.birthday || '');
       setHandleTouched(true);
       setAvatar(
         person.avatar_url
@@ -72,6 +82,9 @@ export function AddEditPersonModal({
       const startName = initialName.trim();
       setName(startName);
       setHandle(startName ? buildDefaultHandle(startName) : '');
+      setRelationship(null);
+      setNotes('');
+      setBirthday('');
       setHandleTouched(false);
       setAvatar(null);
     }
@@ -162,6 +175,9 @@ export function AddEditPersonModal({
       await onSave({
         name: trimmedName,
         handle: cleanHandle,
+        relationship: relationship || null,
+        notes: notes.trim() || null,
+        birthday: birthday.trim() || null,
         localAvatar: avatar?.isLocal ? { uri: avatar.uri, mimeType: avatar.mimeType } : null,
         avatarRemoved,
       });
@@ -197,11 +213,11 @@ export function AddEditPersonModal({
           <View style={styles.handleBar} />
 
           <View style={styles.headerRow}>
-            <View>
-              <AppText style={styles.sheetTitle}>
+            <View style={styles.headerTextWrap}>
+              <AppText style={styles.sheetTitle} numberOfLines={1}>
                 {isEditing ? 'Edit Person' : 'Add Person'}
               </AppText>
-              <AppText variant="caption" color={Colors.textSecondary}>
+              <AppText variant="caption" color={Colors.textSecondary} numberOfLines={1}>
                 {isEditing
                   ? 'Update profile details or picture'
                   : 'Mention them in any thought using @'}
@@ -237,7 +253,7 @@ export function AddEditPersonModal({
                   </View>
                 )}
 
-                <View style={styles.cameraCornerBadge}>
+                <View style={[styles.cameraCornerBadge, { backgroundColor: colors.primary }]}>
                   <Ionicons name="camera" size={14} color={Colors.white} />
                 </View>
               </TouchableOpacity>
@@ -245,11 +261,11 @@ export function AddEditPersonModal({
               <View style={styles.photoActionsRow}>
                 <TouchableOpacity
                   onPress={handlePickFromGallery}
-                  style={styles.photoActionPill}
+                  style={[styles.photoActionPill, { backgroundColor: colors.primaryLight }]}
                   activeOpacity={0.75}
                 >
-                  <Ionicons name="images-outline" size={14} color={Colors.primaryDark} />
-                  <AppText variant="caption" style={styles.photoActionText}>
+                  <Ionicons name="images-outline" size={14} color={colors.primaryDark} />
+                  <AppText variant="caption" style={[styles.photoActionText, { color: colors.primaryDark }]}>
                     Gallery
                   </AppText>
                 </TouchableOpacity>
@@ -257,11 +273,11 @@ export function AddEditPersonModal({
                 {Platform.OS !== 'web' && (
                   <TouchableOpacity
                     onPress={handleTakePhoto}
-                    style={styles.photoActionPill}
+                    style={[styles.photoActionPill, { backgroundColor: colors.primaryLight }]}
                     activeOpacity={0.75}
                   >
-                    <Ionicons name="camera-outline" size={14} color={Colors.primaryDark} />
-                    <AppText variant="caption" style={styles.photoActionText}>
+                    <Ionicons name="camera-outline" size={14} color={colors.primaryDark} />
+                    <AppText variant="caption" style={[styles.photoActionText, { color: colors.primaryDark }]}>
                       Camera
                     </AppText>
                   </TouchableOpacity>
@@ -307,6 +323,62 @@ export function AddEditPersonModal({
               maxLength={50}
               hint={`Type @${buildDefaultHandle(handle || name) || 'name'} in chat to mention`}
               leftIcon={<Ionicons name="at" size={18} color={Colors.textMuted} />}
+            />
+
+            {/* ── Relationship Tag Chips ── */}
+            <View style={styles.relSection}>
+              <AppText variant="label" color={Colors.textSecondary} style={{ marginLeft: 2 }}>
+                Relationship (optional)
+              </AppText>
+              <View style={styles.relRow}>
+                {RELATIONSHIPS.map((rel) => {
+                  const selected = relationship === rel;
+                  return (
+                    <TouchableOpacity
+                      key={rel}
+                      onPress={() => setRelationship(selected ? null : rel)}
+                      activeOpacity={0.8}
+                      style={[
+                        styles.relChip,
+                        selected && {
+                          backgroundColor: colors.primaryLight,
+                          borderColor: colors.primary,
+                        },
+                      ]}
+                    >
+                      <AppText
+                        variant="caption"
+                        style={[
+                          styles.relChipText,
+                          selected && { fontFamily: FontFamily.bold, color: colors.primaryDark },
+                        ]}
+                      >
+                        {rel}
+                      </AppText>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* ── Birthday (optional) ── */}
+            <Input
+              label="Birthday (optional)"
+              placeholder="e.g. May 14"
+              value={birthday}
+              onChangeText={setBirthday}
+              maxLength={20}
+              leftIcon={<Ionicons name="gift-outline" size={17} color={Colors.textMuted} />}
+            />
+
+            {/* ── Notes (optional) ── */}
+            <Input
+              label="Notes (optional)"
+              placeholder="Things to remember about them..."
+              value={notes}
+              onChangeText={setNotes}
+              maxLength={500}
+              leftIcon={<Ionicons name="document-text-outline" size={17} color={Colors.textMuted} />}
             />
 
             {error && (
@@ -358,6 +430,9 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.OS === 'ios' ? 34 : Spacing[5],
     paddingHorizontal: Spacing[5],
     maxHeight: '88%',
+    maxWidth: 540,
+    width: '100%',
+    alignSelf: 'center',
     ...Shadow.lg,
   },
   handleBar: {
@@ -372,7 +447,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: Spacing[2],
     marginBottom: Spacing[4],
+  },
+  headerTextWrap: {
+    flex: 1,
+    minWidth: 0,
   },
   sheetTitle: {
     fontFamily: FontFamily.editorial,
@@ -383,6 +463,7 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
+    flexShrink: 0,
     backgroundColor: Colors.surfaceAlt,
     alignItems: 'center',
     justifyContent: 'center',
@@ -451,6 +532,35 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.semiBold,
     color: Colors.primaryDark,
     fontSize: FontSize.xs,
+  },
+  relSection: {
+    gap: 8,
+  },
+  relRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing[2],
+  },
+  relChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: '#E5E1D8',
+  },
+  relChipActive: {
+    backgroundColor: Colors.primaryLight,
+    borderColor: Colors.primary,
+  },
+  relChipText: {
+    fontFamily: FontFamily.medium,
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  relChipTextActive: {
+    fontFamily: FontFamily.bold,
+    color: Colors.primaryDark,
   },
   actionsRow: {
     flexDirection: 'row',

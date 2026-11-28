@@ -2,10 +2,11 @@ import React, { useEffect } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth } from '@/hooks/use-auth';
-import { Colors } from '@/theme';
+import { useThemeColors } from '@/hooks/use-mood-theme';
 
 export default function Index() {
   const { isInitialized, isAuthenticated } = useAuth();
+  const colors = useThemeColors();
 
   useEffect(() => {
     if (!isInitialized) return;
@@ -18,8 +19,8 @@ export default function Index() {
   }, [isInitialized, isAuthenticated]);
 
   return (
-    <View style={styles.loadingContainer}>
-      <ActivityIndicator size="small" color={Colors.primary} />
+    <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
+      <ActivityIndicator size="small" color={colors.primary} />
     </View>
   );
 }
@@ -27,7 +28,6 @@ export default function Index() {
 const styles = StyleSheet.create({
   loadingContainer: {
     flex: 1,
-    backgroundColor: Colors.background,
     justifyContent: 'center',
     alignItems: 'center',
   },

@@ -23,7 +23,8 @@ export function buildDefaultHandle(name: string): string {
 
 /**
  * Detects an active `@query` right before the cursor position.
- * Triggers at start of string or after whitespace / opening punctuation.
+ * Scans backwards from the cursor so multiple `@mentions` in one message
+ * each get their own independent trigger.
  */
 export function getActiveMentionTrigger(
   text: string,
@@ -31,14 +32,16 @@ export function getActiveMentionTrigger(
 ): MentionTrigger | null {
   const safeCursor = Math.max(0, Math.min(cursorIndex, text.length));
   const beforeCursor = text.slice(0, safeCursor);
-  const match = beforeCursor.match(/(?:^|[\s(\[{"'])@([^\n]*)$/);
-  if (!match) return null;
-
-  const query = match[1] ?? '';
-  if (query.startsWith(' ')) return null;
-
   const atIndex = beforeCursor.lastIndexOf('@');
   if (atIndex < 0) return null;
+
+  if (atIndex > 0 && !/[\s(\[{"',]/.test(beforeCursor[atIndex - 1])) {
+    return null;
+  }
+
+  const query = beforeCursor.slice(atIndex + 1);
+  if (query.includes('\n')) return null;
+  if (query.length > 0 && /^\s/.test(query)) return null;
 
   return {
     startIndex: atIndex,
@@ -48,11 +51,12 @@ export function getActiveMentionTrigger(
 }
 
 /**
- * Filters people by name or handle, prioritizing prefix matches first.
+ * Filters people by name or handle only after at least one letter/character
+ * is entered after `@`, prioritizing prefix matches first.
  */
 export function filterPeopleForMention(people: Person[], query: string): Person[] {
   const q = query.trim().toLowerCase();
-  if (!q) return people;
+  if (!q) return [];
 
   const matches = people.filter(
     (p) =>
@@ -116,7 +120,7 @@ export function parseMentionSegments(text: string, people: Person[]): MentionSeg
 
   for (const { person, token } of candidates) {
     const regex = new RegExp(
-      `(^|[\\s(\\[{"'])@${escapeRegex(token)}(?=$|[\\s.,!?;:)\\]}"'])`,
+      `(^|[\\s(\\[{"',])@${escapeRegex(token)}(?=$|[\\s.,!?;:)\\]}"'])`,
       'gi'
     );
     let match: RegExpExecArray | null;

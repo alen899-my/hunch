@@ -9,8 +9,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, Radius, Shadow, Spacing, FontFamily, FontSize } from '@/theme';
-import { AppText } from '@/components/ui';
+import { Colors, Radius, Shadow, Spacing } from '@/theme';
+import { useThemeColors } from '@/hooks/use-mood-theme';
 import { getSafeBottomPadding } from '@/utils/safe-area';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
@@ -29,6 +29,7 @@ const TABS: {
 
 // ── Floating custom tab bar ──────────────────────────────────
 function FloatingTabBar(props: any) {
+  const colors = useThemeColors();
   const { state, navigateToTab, navigation } = props;
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -62,27 +63,19 @@ function FloatingTabBar(props: any) {
               key={route.key}
               onPress={onPress}
               activeOpacity={0.7}
+              accessibilityRole="tab"
+              accessibilityLabel={tab.label}
+              accessibilityState={{ selected: isFocused }}
               style={s.tab}
             >
-              {/* Pill indicator behind active icon */}
-              <View style={[s.pill, isFocused && s.pillActive]}>
+              {/* Rounded pill indicator behind active icon */}
+              <View style={[s.pill, isFocused && [s.pillActive, { backgroundColor: colors.primaryLight }]]}>
                 <Ionicons
                   name={isFocused ? tab.iconFocused : tab.icon}
-                  size={20}
-                  color={isFocused ? Colors.primary : Colors.textMuted}
+                  size={22}
+                  color={isFocused ? colors.primary : Colors.textMuted}
                 />
               </View>
-              <AppText
-                variant="caption"
-                style={[
-                  s.label,
-                  { color: isFocused ? Colors.primary : Colors.textMuted },
-                  isFocused && { fontFamily: FontFamily.semiBold },
-                ]}
-                numberOfLines={1}
-              >
-                {tab.label}
-              </AppText>
             </TouchableOpacity>
           );
         })}
@@ -117,7 +110,7 @@ const s = StyleSheet.create({
   bar: {
     flexDirection: 'row',
     backgroundColor: Colors.surface,
-    borderRadius: Radius['3xl'],
+    borderRadius: Radius.full,
     paddingVertical: Spacing[2],
     paddingHorizontal: Spacing[3],
     ...Shadow.lg,
@@ -130,22 +123,20 @@ const s = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
-    paddingVertical: Spacing[1],
+    paddingVertical: 2,
+    borderRadius: Radius.full,
+    overflow: 'hidden',
   },
   // Icon background pill
   pill: {
-    width: 40,
-    height: 32,
-    borderRadius: Radius.lg,
+    width: 58,
+    height: 40,
+    borderRadius: Radius.full,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
   pillActive: {
     backgroundColor: Colors.primaryLight,
-  },
-  label: {
-    fontSize: FontSize.xs,
-    lineHeight: 14,
   },
 });

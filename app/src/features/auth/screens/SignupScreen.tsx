@@ -7,18 +7,21 @@ import {
   KeyboardAvoidingView,
   Platform,
   useWindowDimensions,
+  Alert,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons, AntDesign } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText, Button, Divider, Input } from '@/components/ui';
 import { Colors, Spacing, FontSize } from '@/theme';
+import { useThemeColors } from '@/hooks/use-mood-theme';
 import { useAuth } from '@/hooks/use-auth';
 import { getSafeBottomPadding } from '@/utils/safe-area';
 
 const TABLET = 600;
 
 export default function SignupScreen() {
+  const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isTablet = width >= TABLET;
@@ -58,7 +61,7 @@ export default function SignupScreen() {
   const safeBottom = getSafeBottomPadding(insets.bottom, Spacing[8], 60, 44);
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top']}>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -101,7 +104,12 @@ export default function SignupScreen() {
               label="Continue with Google"
               variant="secondary"
               size="lg"
-              onPress={() => { /* Google flow */ }}
+              onPress={() =>
+                Alert.alert(
+                  'Google Sign-Up',
+                  'Add your Google OAuth Client ID in server/.env to enable one-tap Google sign-up, or create an account with email below.'
+                )
+              }
               leftIcon={<AntDesign name="google" size={18} color="#4285F4" />}
             />
 
@@ -176,7 +184,7 @@ export default function SignupScreen() {
                 Already have an account?{' '}
               </AppText>
               <TouchableOpacity onPress={() => router.push('/login')}>
-                <AppText variant="bodyMd" color={Colors.primary}>Sign in</AppText>
+                <AppText variant="bodyMd" color={colors.primary}>Sign in</AppText>
               </TouchableOpacity>
             </View>
 

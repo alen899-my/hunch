@@ -35,4 +35,18 @@ const getMe = async (req, res) => {
   } catch (err) { handleError(res, err); }
 };
 
-module.exports = { register, login, googleAuth, getMe };
+const updateMe = async (req, res) => {
+  try {
+    const user = await service.updateMe(req.user.id, req.body);
+    ok(res, { user }, 'Profile updated');
+  } catch (err) { handleError(res, err); }
+};
+
+const changePassword = async (req, res) => {
+  try {
+    const result = await service.changePassword(req.user.id, req.body);
+    ok(res, result, 'Password updated');
+  } catch (err) { handleError(res, err); }
+};
+
+module.exports = { register, login, googleAuth, getMe, updateMe, changePassword };

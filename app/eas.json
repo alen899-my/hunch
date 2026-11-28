@@ -1,36 +1,89 @@
 {
   "cli": {
     "version": ">= 15.0.0",
-    "appVersionSource": "remote"
+    "appVersionSource": "remote",
+    "requireCommit": false
   },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "ios": {
+        "simulator": false,
+        "resourceClass": "m-medium"
+      },
+      "android": {
+        "buildType": "apk",
+        "resourceClass": "medium"
+      },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://hunch-api-eight.vercel.app/api"
+        "EXPO_PUBLIC_API_URL": "https://hunch-api-eight.vercel.app/api",
+        "NODE_ENV": "development"
+      },
+      "cache": {
+        "key": "hunch-dev-v1"
+      }
+    },
+    "simulator": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "simulator": true,
+        "resourceClass": "m-medium"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://hunch-api-eight.vercel.app/api",
+        "NODE_ENV": "development"
       }
     },
     "preview": {
       "distribution": "internal",
+      "channel": "preview",
+      "ios": {
+        "resourceClass": "m-medium"
+      },
       "android": {
-        "buildType": "apk"
+        "buildType": "apk",
+        "resourceClass": "medium"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://hunch-api-eight.vercel.app/api"
+        "EXPO_PUBLIC_API_URL": "https://hunch-api-eight.vercel.app/api",
+        "NODE_ENV": "production"
+      },
+      "cache": {
+        "key": "hunch-preview-v1"
       }
     },
     "production": {
       "autoIncrement": true,
+      "channel": "production",
+      "ios": {
+        "resourceClass": "m-medium"
+      },
       "android": {
-        "buildType": "app-bundle"
+        "buildType": "app-bundle",
+        "resourceClass": "medium"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://hunch-api-eight.vercel.app/api"
+        "EXPO_PUBLIC_API_URL": "https://hunch-api-eight.vercel.app/api",
+        "NODE_ENV": "production"
+      },
+      "cache": {
+        "key": "hunch-prod-v1"
       }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "appleId": "",
+        "ascAppId": "",
+        "appleTeamId": ""
+      },
+      "android": {
+        "serviceAccountKeyPath": "./google-services-account.json",
+        "track": "internal"
+      }
+    }
   }
 }

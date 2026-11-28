@@ -1,13 +1,17 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   ScrollView,
+  TextInput,
   TouchableOpacity,
   StyleSheet,
   useWindowDimensions,
   RefreshControl,
   Alert,
   Animated,
+  KeyboardAvoidingView,
+  Keyboard,
+  Platform,
 } from 'react-native';
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Image } from 'expo-image';
@@ -16,6 +20,8 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { AppText, Button } from '@/components/ui';
 import { Colors, Spacing, Radius, FontFamily, FontSize, Shadow } from '@/theme';
 import { usePeople, usePersonDetails, type SavePersonInput } from '@/hooks/use-people';
+import { useThemeColors } from '@/hooks/use-mood-theme';
+import { useDayStream } from '@/hooks/use-thoughts';
 import type { Person, PersonMentionThought } from '@/services/people.service';
 import {
   AttachmentCard,
@@ -55,6 +61,7 @@ function formatTime(isoStr: string): string {
 }
 
 export default function PersonDetailScreen() {
+  const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const personId = typeof id === 'string' ? id : '';
@@ -64,12 +71,28 @@ export default function PersonDetailScreen() {
   const isSmallPhone = width < 370;
   const maxW = isTablet ? 580 : undefined;
 
+  const todayStr = new Date().toISOString().split('T')[0];
   const { people, editPerson, removePerson } = usePeople();
   const { person, mentions, loading, error, setPerson, fetchDetails } =
     usePersonDetails(personId);
+  const { addThought } = useDayStream(todayStr);
 
   const [refreshing, setRefreshing] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [coFilterPersonId, setCoFilterPersonId] = useState<string | null>(null);
+  const [quickText, setQuickText] = useState('');
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const s1 = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+    const s2 = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+    return () => {
+      s1.remove();
+      s2.remove();
+    };
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -122,183 +145,337 @@ export default function PersonDetailScreen() {
     );
   };
 
-  const todayStr = new Date().toISOString().split('T')[0];
-  const safeBottom = getSafeBottomPadding(insets.bottom, Spacing[8], 56, 40);
+  const coMentionedPeople = useMemo(() => {
+    const counts = new Map<string, number>();
+    mentions.forEach((m) => {
+      m.co_mentioned_ids?.forEach((cid) => {
+        counts.set(cid, (counts.get(cid) || 0) + 1);
+      });
+    });
+    return people
+      .filter((p) => p.id !== personId && counts.has(p.id))
+      .map((p) => ({ person: p, count: counts.get(p.id)! }));
+  }, [mentions, people, personId]);
+
+  const displayedMentions = useMemo(() => {
+    if (!coFilterPersonId) return mentions;
+    return mentions.filter((m) => m.co_mentioned_ids?.includes(coFilterPersonId));
+  }, [mentions, coFilterPersonId]);
+
+  const handleQuickSend = () => {
+    if (!person || !quickText.trim()) return;
+    const raw = quickText.trim();
+    const hasMention =
+      raw.toLowerCase().includes(`@${person.name.toLowerCase()}`) ||
+      raw.toLowerCase().includes(`@${person.handle.toLowerCase()}`);
+    const finalContent = hasMention ? raw : `@${person.name} ${raw}`;
+    setQuickText('');
+    addThought(finalContent, 'thinking', [person.id]);
+  };
+
+  const composerBottom = keyboardVisible
+    ? Spacing[2]
+    : getSafeBottomPadding(insets.bottom, 16, 48, 32);
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      {/* ── Clean Top Bar (Matching ThoughtChatScreen) ── */}
+    <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top']}>
+      {/* ── Clean Top Bar ── */}
       <View
         style={[
           styles.topBar,
+          { backgroundColor: colors.background },
+          isSmallPhone && { paddingHorizontal: Spacing[3] },
           maxW ? { maxWidth: maxW, alignSelf: 'center', width: '100%' } : null,
         ]}
       >
         <TouchableOpacity
           onPress={handleBack}
-          style={styles.headerBtn}
+          style={[styles.headerBtn, isSmallPhone && styles.headerBtnCompact]}
           hitSlop={8}
           activeOpacity={0.7}
         >
-          <Ionicons name="chevron-back" size={22} color={Colors.text} />
+          <Ionicons name="chevron-back" size={isSmallPhone ? 20 : 22} color={Colors.text} />
         </TouchableOpacity>
 
         <View style={styles.topCenter}>
-          <AppText variant="title" numberOfLines={1} style={styles.topTitle}>
+          <AppText
+            variant="title"
+            numberOfLines={1}
+            style={[styles.topTitle, isSmallPhone && { fontSize: FontSize.md }]}
+          >
             {person?.name || 'Person'}
           </AppText>
         </View>
 
-        <View style={styles.headerRightRow}>
+        <View style={[styles.headerRightRow, isSmallPhone && { gap: 4 }]}>
           {person && (
             <>
               <TouchableOpacity
                 onPress={() => setShowEditModal(true)}
-                style={styles.headerBtn}
+                style={[styles.headerBtn, isSmallPhone && styles.headerBtnCompact]}
                 hitSlop={8}
                 activeOpacity={0.7}
               >
-                <Feather name="edit-2" size={17} color={Colors.textSecondary} />
+                <Feather name="edit-2" size={isSmallPhone ? 15 : 17} color={Colors.textSecondary} />
               </TouchableOpacity>
 
               <TouchableOpacity
                 onPress={handleDeletePerson}
-                style={styles.headerBtn}
+                style={[styles.headerBtn, isSmallPhone && styles.headerBtnCompact]}
                 hitSlop={8}
                 activeOpacity={0.7}
               >
-                <Feather name="trash-2" size={17} color="#D93838" />
+                <Feather name="trash-2" size={isSmallPhone ? 15 : 17} color="#D93838" />
               </TouchableOpacity>
             </>
           )}
         </View>
       </View>
 
-      {/* ── Main Content ── */}
-      {loading && !person ? (
-        <DetailSkeletonLoader maxW={maxW} />
-      ) : error && !person ? (
-        <View style={styles.errorState}>
-          <Ionicons name="alert-circle-outline" size={38} color={Colors.error} />
-          <AppText variant="title">{error}</AppText>
-          <Button
-            label="Go Back"
-            variant="secondary"
-            fullWidth={false}
-            onPress={handleBack}
-          />
-        </View>
-      ) : person ? (
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={[
-            styles.scrollContent,
-            { paddingBottom: safeBottom },
-            maxW ? { maxWidth: maxW, alignSelf: 'center', width: '100%' } : null,
-          ]}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={Colors.primary}
-              colors={[Colors.primary]}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
+        {/* ── Main Content ── */}
+        {loading && !person ? (
+          <DetailSkeletonLoader maxW={maxW} />
+        ) : error && !person ? (
+          <View style={styles.errorState}>
+            <Ionicons name="alert-circle-outline" size={38} color={Colors.error} />
+            <AppText variant="title">{error}</AppText>
+            <Button
+              label="Go Back"
+              variant="secondary"
+              fullWidth={false}
+              onPress={handleBack}
             />
-          }
-        >
-          {/* ── Person Summary Card ── */}
-          <View style={styles.profileCard}>
-            <TouchableOpacity
-              onPress={() => setShowEditModal(true)}
-              activeOpacity={0.85}
-              style={styles.profileAvatarWrap}
-            >
-              {person.avatar_url ? (
-                <Image
-                  source={{ uri: person.avatar_url }}
-                  style={[styles.profileAvatar, isSmallPhone && styles.profileAvatarSmall]}
-                  contentFit="cover"
+          </View>
+        ) : person ? (
+          <>
+            <ScrollView
+              style={styles.scroll}
+              contentContainerStyle={[
+                styles.scrollContent,
+                { paddingBottom: composerBottom + 74 },
+                maxW ? { maxWidth: maxW, alignSelf: 'center', width: '100%' } : null,
+              ]}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  tintColor={colors.primary}
+                  colors={[colors.primary]}
                 />
-              ) : (
-                <View
-                  style={[
-                    styles.profileAvatarFallback,
-                    isSmallPhone && styles.profileAvatarSmall,
-                  ]}
-                >
-                  <Ionicons
-                    name="person"
-                    size={isSmallPhone ? 28 : 32}
-                    color={Colors.white}
-                  />
-                </View>
-              )}
-              <View style={styles.editPhotoBadge}>
-                <Ionicons name="camera" size={12} color={Colors.white} />
-              </View>
-            </TouchableOpacity>
+              }
+            >
+              {/* ── Person Summary Card ── */}
+              <View style={styles.profileCard}>
+                <View style={styles.profileTopRow}>
+                  <TouchableOpacity
+                    onPress={() => setShowEditModal(true)}
+                    activeOpacity={0.85}
+                    style={styles.profileAvatarWrap}
+                  >
+                    {person.avatar_url ? (
+                      <Image
+                        source={{ uri: person.avatar_url }}
+                        style={[styles.profileAvatar, isSmallPhone && styles.profileAvatarSmall]}
+                        contentFit="cover"
+                      />
+                    ) : (
+                      <View
+                        style={[
+                          styles.profileAvatarFallback,
+                          isSmallPhone && styles.profileAvatarSmall,
+                        ]}
+                      >
+                        <Ionicons
+                          name="person"
+                          size={isSmallPhone ? 28 : 32}
+                          color={Colors.white}
+                        />
+                      </View>
+                    )}
+                    <View style={[styles.editPhotoBadge, { backgroundColor: colors.primary }]}>
+                      <Ionicons name="camera" size={12} color={Colors.white} />
+                    </View>
+                  </TouchableOpacity>
 
-            <View style={styles.profileInfoCol}>
-              <AppText style={[styles.profileName, isSmallPhone && { fontSize: 21 }]}>
-                {person.name}
-              </AppText>
-              <AppText variant="label" color={Colors.textSecondary}>
-                @{person.handle}
-              </AppText>
-              <View style={styles.profileStatsRow}>
-                <View style={styles.mentionPill}>
-                  <Ionicons name="at" size={13} color={Colors.primaryDark} />
-                  <AppText variant="caption" style={styles.mentionPillText}>
-                    {mentions.length} {mentions.length === 1 ? 'mention' : 'mentions'}
+                  <View style={styles.profileInfoCol}>
+                    <AppText
+                      numberOfLines={2}
+                      style={[styles.profileName, isSmallPhone && { fontSize: 21 }]}
+                    >
+                      {person.name}
+                    </AppText>
+                    <AppText variant="label" numberOfLines={1} color={Colors.textSecondary}>
+                      @{person.handle}
+                    </AppText>
+                    <View style={styles.profileStatsRow}>
+                      <View style={[styles.mentionPill, { backgroundColor: colors.primaryLight }]}>
+                        <Ionicons name="at" size={13} color={colors.primaryDark} />
+                        <AppText variant="caption" style={[styles.mentionPillText, { color: colors.primaryDark }]}>
+                          {mentions.length} {mentions.length === 1 ? 'mention' : 'mentions'}
+                        </AppText>
+                      </View>
+
+                      {Boolean(person.relationship) && (
+                        <View style={styles.relTagPill}>
+                          <AppText variant="caption" style={styles.relTagText}>
+                            {person.relationship}
+                          </AppText>
+                        </View>
+                      )}
+
+                      {Boolean(person.birthday) && (
+                        <View style={styles.relTagPill}>
+                          <Ionicons name="gift-outline" size={11} color={Colors.textSecondary} />
+                          <AppText variant="caption" style={styles.relTagText}>
+                            {person.birthday}
+                          </AppText>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                </View>
+
+                {Boolean(person.notes) && (
+                  <View style={[styles.notesBox, { backgroundColor: colors.background }]}>
+                    <AppText variant="caption" color={Colors.textSecondary} style={{ lineHeight: 18 }}>
+                      {person.notes}
+                    </AppText>
+                  </View>
+                )}
+              </View>
+
+              {/* ── Multi-Person Co-Mention Filter ── */}
+              {coMentionedPeople.length > 0 && (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.coFilterRow}
+                >
+                  <TouchableOpacity
+                    onPress={() => setCoFilterPersonId(null)}
+                    style={[styles.coChip, !coFilterPersonId && styles.coChipActive]}
+                    activeOpacity={0.8}
+                  >
+                    <AppText
+                      variant="caption"
+                      style={[styles.coChipText, !coFilterPersonId && styles.coChipTextActive]}
+                    >
+                      All ({mentions.length})
+                    </AppText>
+                  </TouchableOpacity>
+
+                  {coMentionedPeople.map(({ person: co, count }) => {
+                    const active = coFilterPersonId === co.id;
+                    return (
+                      <TouchableOpacity
+                        key={co.id}
+                        onPress={() => setCoFilterPersonId(active ? null : co.id)}
+                        style={[styles.coChip, active && styles.coChipActive]}
+                        activeOpacity={0.8}
+                      >
+                        <AppText
+                          variant="caption"
+                          style={[styles.coChipText, active && styles.coChipTextActive]}
+                        >
+                          + {co.name} ({count})
+                        </AppText>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              )}
+
+              {/* ── Mentioned Messages Stream ── */}
+              <View style={styles.sectionHeaderRow}>
+                <AppText variant="label" color={Colors.textMuted} style={styles.sectionLabel}>
+                  MENTIONED MESSAGES
+                </AppText>
+                <View style={styles.sectionLine} />
+              </View>
+
+              {displayedMentions.length === 0 ? (
+                <View style={styles.emptyMentions}>
+                  <View style={[styles.emptyIconCircle, { backgroundColor: colors.primaryLight }]}>
+                    <Ionicons name="chatbubble-ellipses-outline" size={30} color={colors.primary} />
+                  </View>
+                  <AppText style={styles.emptyTitle}>Nothing mentioned yet</AppText>
+                  <AppText
+                    variant="body"
+                    color={Colors.textSecondary}
+                    align="center"
+                    style={styles.emptyText}
+                  >
+                    Type a note below or mention @{person.name} in any daily thought chat.
                   </AppText>
                 </View>
+              ) : (
+                displayedMentions.map((item) => (
+                  <MentionMessageCard
+                    key={item.id}
+                    item={item}
+                    people={people.length > 0 ? people : [person]}
+                  />
+                ))
+              )}
+            </ScrollView>
+
+            {/* ── Floating Quick "Write about @Name" Composer Bar ── */}
+            <View
+              pointerEvents="box-none"
+              style={[
+                styles.quickComposerWrap,
+                isSmallPhone && { paddingHorizontal: Spacing[3] },
+                { paddingBottom: composerBottom },
+                maxW ? { maxWidth: maxW, alignSelf: 'center', width: '100%' } : null,
+              ]}
+            >
+              <View style={styles.quickComposerRow}>
+                <View
+                  style={[
+                    styles.quickInputPill,
+                    isSmallPhone && { paddingHorizontal: Spacing[2] },
+                  ]}
+                >
+                  <Ionicons name="at" size={17} color={colors.primaryDark} />
+                  <TextInput
+                    value={quickText}
+                    onChangeText={setQuickText}
+                    placeholder={
+                      isSmallPhone
+                        ? `Note about ${person.name}...`
+                        : `Write a thought about ${person.name}...`
+                    }
+                    placeholderTextColor={Colors.textMuted}
+                    multiline
+                    maxLength={800}
+                    style={styles.quickInput}
+                  />
+                </View>
+                <TouchableOpacity
+                  onPress={handleQuickSend}
+                  disabled={!quickText.trim()}
+                  activeOpacity={0.85}
+                  style={[
+                    styles.quickSendBtn,
+                    { backgroundColor: colors.primary },
+                    isSmallPhone && { width: 40, height: 40, borderRadius: 20 },
+                    !quickText.trim() && styles.quickSendBtnDisabled,
+                  ]}
+                >
+                  <Ionicons name="arrow-up" size={19} color={Colors.white} />
+                </TouchableOpacity>
               </View>
             </View>
-          </View>
-
-          {/* ── Mentioned Messages Stream ── */}
-          <View style={styles.sectionHeaderRow}>
-            <AppText variant="label" color={Colors.textMuted} style={styles.sectionLabel}>
-              MENTIONED MESSAGES
-            </AppText>
-            <View style={styles.sectionLine} />
-          </View>
-
-          {mentions.length === 0 ? (
-            <View style={styles.emptyMentions}>
-              <View style={styles.emptyIconCircle}>
-                <Ionicons name="chatbubble-ellipses-outline" size={30} color={Colors.primary} />
-              </View>
-              <AppText style={styles.emptyTitle}>Nothing mentioned yet</AppText>
-              <AppText
-                variant="body"
-                color={Colors.textSecondary}
-                align="center"
-                style={styles.emptyText}
-              >
-                Type @{person.name} in any daily thought chat and those messages will appear right here.
-              </AppText>
-              <Button
-                label="Write in Today's Chat"
-                variant="primary"
-                size="md"
-                fullWidth={false}
-                onPress={() => router.push(`/thoughts/${todayStr}` as any)}
-                leftIcon={<Ionicons name="chatbubbles-outline" size={18} color={Colors.white} />}
-                style={{ marginTop: Spacing[2], paddingHorizontal: Spacing[5] }}
-              />
-            </View>
-          ) : (
-            mentions.map((item) => (
-              <MentionMessageCard
-                key={item.id}
-                item={item}
-                people={people.length > 0 ? people : [person]}
-              />
-            ))
-          )}
-        </ScrollView>
-      ) : null}
+          </>
+        ) : null}
+      </KeyboardAvoidingView>
 
       <AddEditPersonModal
         visible={showEditModal}
@@ -317,6 +494,7 @@ function MentionMessageCard({
   item: PersonMentionThought;
   people: Person[];
 }) {
+  const colors = useThemeColors();
   const [expanded, setExpanded] = useState(false);
   const attachmentPayload = parseAttachmentThought(item.content);
   const isAttachment = Boolean(attachmentPayload);
@@ -330,14 +508,17 @@ function MentionMessageCard({
     >
       {/* Top Meta Row: Date & Time */}
       <View style={styles.messageMetaRow}>
-        <View style={styles.datePill}>
-          <Ionicons name="calendar-outline" size={12} color={Colors.primaryDark} />
-          <AppText variant="caption" style={styles.datePillText}>
+        <View style={[styles.datePill, { backgroundColor: colors.primaryLight }]}>
+          <Ionicons name="calendar-outline" size={12} color={colors.primaryDark} />
+          <AppText variant="caption" numberOfLines={1} style={[styles.datePillText, { color: colors.primaryDark }]}>
             {formatDateLabel(item.day_date, item.created_at)}
           </AppText>
         </View>
 
         <View style={styles.timeRow}>
+          {item.is_starred && (
+            <Ionicons name="star" size={12} color={colors.primary} style={{ marginRight: 2 }} />
+          )}
           <Ionicons name="time-outline" size={12} color={Colors.textMuted} />
           <AppText variant="caption" color={Colors.textMuted} style={styles.timeText}>
             {formatTime(item.created_at)}
@@ -345,10 +526,10 @@ function MentionMessageCard({
         </View>
       </View>
 
-      {/* Body: Attachment or Handwriting Thought Text with Highlighted @Mentions */}
+      {/* Body */}
       {isAttachment && attachmentPayload ? (
         <View style={styles.attachmentWrap}>
-          <AttachmentCard payload={attachmentPayload} isSelected={false} />
+          <AttachmentCard payload={attachmentPayload} isSelected={false} people={people} />
         </View>
       ) : (
         <>
@@ -360,6 +541,9 @@ function MentionMessageCard({
             numberOfLines={expanded ? undefined : 6}
             style={styles.thoughtBodyText}
             onPressMention={(mentioned) => router.push(`/people/${mentioned.id}` as any)}
+            onPressTag={(tag) =>
+              router.push({ pathname: '/(tabs)/thoughts' as any, params: { tag } })
+            }
           />
 
           {isLong && (
@@ -373,7 +557,7 @@ function MentionMessageCard({
             >
               <AppText
                 variant="caption"
-                color={Colors.primaryDark}
+                color={colors.primaryDark}
                 style={{ fontFamily: FontFamily.bold }}
               >
                 {expanded ? 'Show less' : 'Read more'}
@@ -381,19 +565,19 @@ function MentionMessageCard({
               <Ionicons
                 name={expanded ? 'chevron-up' : 'chevron-down'}
                 size={13}
-                color={Colors.primaryDark}
+                color={colors.primaryDark}
               />
             </TouchableOpacity>
           )}
         </>
       )}
 
-      {/* Footer: Jump to day's chat */}
+      {/* Footer */}
       <View style={styles.cardFooterRow}>
         <AppText variant="caption" color={Colors.textMuted}>
           Open day chat
         </AppText>
-        <Feather name="arrow-right" size={13} color={Colors.primaryDark} />
+        <Feather name="arrow-right" size={13} color={colors.primaryDark} />
       </View>
     </TouchableOpacity>
   );
@@ -457,8 +641,13 @@ const styles = StyleSheet.create({
     borderColor: '#ECEAE4',
     ...Shadow.xs,
   },
+  headerBtnCompact: {
+    width: 32,
+    height: 32,
+  },
   topCenter: {
     flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: Spacing[2],
@@ -471,6 +660,7 @@ const styles = StyleSheet.create({
   headerRightRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexShrink: 0,
     gap: Spacing[2],
   },
   scroll: {
@@ -479,7 +669,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: Spacing[4],
     paddingTop: Spacing[4],
-    paddingBottom: Spacing[8],
+    paddingBottom: Spacing[6],
     gap: Spacing[3],
   },
   errorState: {
@@ -490,11 +680,8 @@ const styles = StyleSheet.create({
     gap: Spacing[3],
   },
 
-  // ── Profile Summary Card ──
   profileCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing[4],
+    gap: Spacing[3],
     backgroundColor: Colors.surface,
     borderRadius: Radius['2xl'],
     padding: Spacing[4],
@@ -505,6 +692,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.07,
     shadowRadius: 10,
     elevation: 3,
+  },
+  profileTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[4],
   },
   profileAvatarWrap: {
     position: 'relative',
@@ -542,6 +734,7 @@ const styles = StyleSheet.create({
   },
   profileInfoCol: {
     flex: 1,
+    minWidth: 0,
     gap: 3,
   },
   profileName: {
@@ -552,7 +745,9 @@ const styles = StyleSheet.create({
   },
   profileStatsRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
+    gap: 6,
     marginTop: 4,
   },
   mentionPill: {
@@ -569,12 +764,60 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.primaryDark,
   },
+  relTagPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#F3F1EC',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: Radius.full,
+  },
+  relTagText: {
+    fontFamily: FontFamily.semiBold,
+    fontSize: 11,
+    color: Colors.textSecondary,
+  },
+  notesBox: {
+    backgroundColor: Colors.background,
+    borderRadius: Radius.lg,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[2],
+    borderWidth: 1,
+    borderColor: '#EFECE6',
+  },
+
+  coFilterRow: {
+    gap: Spacing[2],
+    paddingVertical: 2,
+  },
+  coChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: '#ECEAE4',
+  },
+  coChipActive: {
+    backgroundColor: '#26221D',
+    borderColor: '#26221D',
+  },
+  coChipText: {
+    fontFamily: FontFamily.medium,
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  coChipTextActive: {
+    color: Colors.white,
+    fontFamily: FontFamily.bold,
+  },
 
   sectionHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing[3],
-    marginTop: Spacing[2],
+    marginTop: Spacing[1],
   },
   sectionLabel: {
     letterSpacing: 0.8,
@@ -587,7 +830,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#ECEAE4',
   },
 
-  // ── Mentioned Message Card ──
   messageCard: {
     backgroundColor: Colors.surface,
     borderRadius: Radius.lg,
@@ -610,6 +852,8 @@ const styles = StyleSheet.create({
   datePill: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexShrink: 1,
+    minWidth: 0,
     gap: 5,
     backgroundColor: Colors.primaryLight,
     paddingHorizontal: 9,
@@ -620,10 +864,12 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.semiBold,
     fontSize: 11,
     color: Colors.primaryDark,
+    flexShrink: 1,
   },
   timeRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexShrink: 0,
     gap: 4,
   },
   timeText: {
@@ -656,7 +902,6 @@ const styles = StyleSheet.create({
     borderTopColor: '#EFECE6',
   },
 
-  // ── Empty State ──
   emptyMentions: {
     paddingVertical: Spacing[8],
     alignItems: 'center',
@@ -684,7 +929,58 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
   },
 
-  // ── Skeleton ──
+  quickComposerWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 20,
+    paddingHorizontal: Spacing[4],
+    paddingTop: Spacing[1],
+    backgroundColor: 'transparent',
+  },
+  quickComposerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: Spacing[2],
+  },
+  quickInputPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: Radius['2xl'],
+    borderWidth: 1.5,
+    borderColor: '#ECEAE4',
+    paddingHorizontal: Spacing[3],
+    minHeight: 44,
+    gap: 6,
+    ...Shadow.sm,
+  },
+  quickInput: {
+    flex: 1,
+    minWidth: 0,
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    color: Colors.text,
+    maxHeight: 90,
+    paddingVertical: Platform.OS === 'ios' ? 8 : 6,
+  },
+  quickSendBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadow.sm,
+  },
+  quickSendBtnDisabled: {
+    backgroundColor: '#D8D3C8',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+
   skeletonContainer: {
     flex: 1,
     paddingHorizontal: Spacing[4],

@@ -4,16 +4,19 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
+  ActivityIndicator,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { AppText } from '@/components/ui';
 import { Colors, Spacing, Radius, FontFamily, FontSize, Shadow } from '@/theme';
+import { useThemeColors } from '@/hooks/use-mood-theme';
 import type { Person } from '@/services/people.service';
 
 interface MentionSuggestionsBoxProps {
   people: Person[];
   query: string;
+  searching?: boolean;
   onSelectPerson: (person: Person) => void;
   onQuickAddPerson?: (suggestedName: string) => void;
 }
@@ -21,26 +24,34 @@ interface MentionSuggestionsBoxProps {
 export function MentionSuggestionsBox({
   people,
   query,
+  searching = false,
   onSelectPerson,
   onQuickAddPerson,
 }: MentionSuggestionsBoxProps) {
+  const colors = useThemeColors();
   const trimmedQuery = query.trim();
   const canQuickAdd = Boolean(
     onQuickAddPerson &&
-      (people.length === 0 || (trimmedQuery.length > 0 && !trimmedQuery.includes(' ')))
+      trimmedQuery.length > 0 &&
+      (people.length === 0 || !trimmedQuery.includes(' '))
   );
 
-  if (people.length === 0 && !canQuickAdd) {
+  // Only render autocomplete after user types at least one character/letter after @
+  if (!trimmedQuery || (people.length === 0 && !canQuickAdd && !searching)) {
     return null;
   }
 
   return (
     <View style={styles.container}>
-      <View style={styles.headerRow}>
+      <View style={[styles.headerRow, { backgroundColor: colors.primarySoft }]}>
         <View style={styles.headerLeft}>
-          <Ionicons name="at" size={14} color={Colors.primaryDark} />
-          <AppText variant="caption" style={styles.headerTitle}>
-            {people.length > 0 ? 'Mention person' : 'No matching people'}
+          <Ionicons name="at" size={14} color={colors.primaryDark} />
+          <AppText variant="caption" numberOfLines={1} style={styles.headerTitle}>
+            {people.length > 0
+              ? 'Mention person'
+              : searching
+              ? `Searching "${trimmedQuery}"...`
+              : 'No matching people'}
           </AppText>
         </View>
         {onQuickAddPerson && (
@@ -48,11 +59,11 @@ export function MentionSuggestionsBox({
             onPress={() => onQuickAddPerson(trimmedQuery)}
             hitSlop={8}
             activeOpacity={0.75}
-            style={styles.quickAddPill}
+            style={[styles.quickAddPill, { backgroundColor: colors.primaryLight }]}
           >
-            <Ionicons name="person-add-outline" size={12} color={Colors.primaryDark} />
-            <AppText variant="caption" style={styles.quickAddText}>
-              {trimmedQuery && people.length === 0 ? `Add "${trimmedQuery}"` : 'Add person'}
+            <Ionicons name="person-add-outline" size={12} color={colors.primaryDark} />
+            <AppText variant="caption" numberOfLines={1} style={[styles.quickAddText, { color: colors.primaryDark }]}>
+              {people.length === 0 ? `Add "${trimmedQuery}"` : 'Add person'}
             </AppText>
           </TouchableOpacity>
         )}
@@ -103,10 +114,17 @@ export function MentionSuggestionsBox({
             </TouchableOpacity>
           ))}
         </ScrollView>
+      ) : searching ? (
+        <View style={styles.searchingHintRow}>
+          <ActivityIndicator size="small" color={colors.primary} />
+          <AppText variant="caption" color={Colors.textSecondary}>
+            Finding people matching &ldquo;{trimmedQuery}&rdquo;...
+          </AppText>
+        </View>
       ) : (
         <View style={styles.emptyHintRow}>
           <AppText variant="caption" color={Colors.textSecondary}>
-            Tap &ldquo;{trimmedQuery ? `Add "${trimmedQuery}"` : 'Add person'}&rdquo; to create someone and mention them here.
+            Tap &ldquo;{`Add "${trimmedQuery}"`}&rdquo; to create someone and mention them here.
           </AppText>
         </View>
       )}
@@ -127,26 +145,32 @@ const styles = StyleSheet.create({
   },
   headerRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: Spacing[2],
     paddingHorizontal: Spacing[4],
     paddingVertical: Spacing[2],
-    backgroundColor: '#FAF7F1',
+    backgroundColor: Colors.primarySoft,
     borderBottomWidth: 1,
     borderBottomColor: '#EFECE6',
   },
   headerLeft: {
+    flex: 1,
+    minWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
   },
   headerTitle: {
+    flexShrink: 1,
     fontFamily: FontFamily.semiBold,
     color: Colors.textSecondary,
     fontSize: FontSize.xs,
   },
   quickAddPill: {
     flexDirection: 'row',
+    flexShrink: 0,
     alignItems: 'center',
     gap: 4,
     backgroundColor: Colors.primaryLight,
@@ -189,6 +213,7 @@ const styles = StyleSheet.create({
   },
   personMeta: {
     flex: 1,
+    minWidth: 0,
     gap: 1,
   },
   personName: {
@@ -201,6 +226,7 @@ const styles = StyleSheet.create({
     minWidth: 24,
     height: 22,
     borderRadius: 11,
+    flexShrink: 0,
     backgroundColor: '#F3F1EC',
     alignItems: 'center',
     justifyContent: 'center',
@@ -210,6 +236,13 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.bold,
     fontSize: 11,
     color: Colors.textSecondary,
+  },
+  searchingHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[2],
+    paddingHorizontal: Spacing[4],
+    paddingVertical: Spacing[3],
   },
   emptyHintRow: {
     paddingHorizontal: Spacing[4],

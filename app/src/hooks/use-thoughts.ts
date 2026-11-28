@@ -1,45 +1,49 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as thoughtsService from '@/services/thoughts.service';
-import type { Thought, DaySummary, ThoughtCategory } from '@/services/thoughts.service';
+import type {
+  Thought,
+  DaySummary,
+  ThoughtCategory,
+  ThoughtMood,
+  TagSummary,
+  ThoughtsStats,
+} from '@/services/thoughts.service';
+import { extractHashtagsFromText } from '@/features/thoughts/utils/tags';
 import { useAuth } from './use-auth';
 import {
   applyOptimisticMentionInStore,
   replaceOptimisticMentionThoughtInStore,
   removeOptimisticMentionThoughtsInStore,
   waitForPendingPeopleCreations,
+  upsertKnownPeopleInStore,
 } from './use-people';
+import {
+  setLatestMoodInStore,
+  resetMoodThemeForToken,
+  applyInitialMoodStatsIfEmpty,
+} from './use-mood-theme';
 
-export type StreamThought = Thought & { clientKey?: string };
+export type StreamThought = Thought & { clientKey?: string; pendingOffline?: boolean };
 
 const getTodayDate = () => new Date().toISOString().split('T')[0];
 
 const STORAGE_DAYS_PREFIX = '@hunch_days_cache_v1_';
 const STORAGE_STREAM_PREFIX = '@hunch_stream_cache_v1_';
+const STORAGE_STATS_PREFIX = '@hunch_stats_cache_v1_';
+const STORAGE_TAGS_PREFIX = '@hunch_tags_cache_v1_';
+const STORAGE_OFFLINE_QUEUE_PREFIX = '@hunch_offline_queue_v1_';
 const SILENT_REFETCH_THROTTLE_MS = 4000;
 
-interface DaysStoreState {
-  days: DaySummary[];
-  loading: boolean;
-  error: string | null;
-  tokenKey: string | null;
-  hydrated: boolean;
-  lastFetchAt: number;
-  mutationVersion: number;
-  pendingMutations: number;
-}
-
-interface DayStreamStoreState {
-  thoughts: StreamThought[];
-  loading: boolean;
-  sending: boolean;
-  error: string | null;
-  tokenKey: string | null;
-  hydrated: boolean;
-  lastFetchAt: number;
-  mutationVersion: number;
-  pendingMutations: number;
+interface QueuedThoughtItem {
+  tempId: string;
+  dayDate: string;
+  content: string;
+  category: ThoughtCategory;
+  mood?: ThoughtMood | null;
+  replyToId?: string | null;
+  mentionedPersonIds?: string[];
+  createdAt: string;
 }
 
 export interface DaysSnapshot {
@@ -55,12 +59,33 @@ export interface DayStreamSnapshot {
   error: string | null;
 }
 
-const EMPTY_DAYS_SNAPSHOT: DaysSnapshot = {
-  days: [],
-  loading: true,
-  error: null,
-};
+export interface StatsSnapshot {
+  stats: ThoughtsStats | null;
+  loading: boolean;
+}
 
+export interface TagsSnapshot {
+  tags: TagSummary[];
+  loading: boolean;
+}
+
+interface DaysStoreState extends DaysSnapshot {
+  tokenKey: string | null;
+  hydrated: boolean;
+  lastFetchAt: number;
+  mutationVersion: number;
+  pendingMutations: number;
+}
+
+interface DayStreamStoreState extends DayStreamSnapshot {
+  tokenKey: string | null;
+  hydrated: boolean;
+  lastFetchAt: number;
+  mutationVersion: number;
+  pendingMutations: number;
+}
+
+const EMPTY_DAYS_SNAPSHOT: DaysSnapshot = { days: [], loading: true, error: null };
 const EMPTY_STREAM_SNAPSHOT: DayStreamSnapshot = {
   thoughts: [],
   loading: true,
@@ -85,20 +110,28 @@ const _streamSnapshots = new Map<string, DayStreamSnapshot>();
 const _daysListeners = new Set<() => void>();
 const _streamListeners = new Map<string, Set<() => void>>();
 
+let _statsSnapshot: StatsSnapshot = { stats: null, loading: true };
+let _statsLastFetch = 0;
+let _statsTokenKey: string | null = '__uninitialized__';
+const _statsListeners = new Set<() => void>();
+
+let _tagsSnapshot: TagsSnapshot = { tags: [], loading: true };
+let _tagsLastFetch = 0;
+let _tagsTokenKey: string | null = '__uninitialized__';
+const _tagsListeners = new Set<() => void>();
+
+let _flushingQueue = false;
+
 const getTokenBucket = (tokenKey: string | null) => tokenKey || 'guest';
 
 function getDaysSnapshot(tokenKey: string | null): DaysSnapshot {
-  if (_daysState.tokenKey !== tokenKey) {
-    return EMPTY_DAYS_SNAPSHOT;
-  }
+  if (_daysState.tokenKey !== tokenKey) return EMPTY_DAYS_SNAPSHOT;
   return _daysSnapshot;
 }
 
 function getStreamSnapshot(dayDate: string, tokenKey: string | null): DayStreamSnapshot {
   const state = _streamStates.get(dayDate);
-  if (!state || state.tokenKey !== tokenKey) {
-    return EMPTY_STREAM_SNAPSHOT;
-  }
+  if (!state || state.tokenKey !== tokenKey) return EMPTY_STREAM_SNAPSHOT;
   return _streamSnapshots.get(dayDate) || EMPTY_STREAM_SNAPSHOT;
 }
 
@@ -126,6 +159,36 @@ function notifyStream(dayDate: string) {
   _streamListeners.get(dayDate)?.forEach((fn) => fn());
 }
 
+function notifyStats() {
+  _statsListeners.forEach((fn) => fn());
+}
+
+function notifyTags() {
+  _tagsListeners.forEach((fn) => fn());
+}
+
+function applyStatsSnapshot(stats: ThoughtsStats, tokenKey: string | null) {
+  _statsSnapshot = { stats, loading: false };
+  _statsLastFetch = Date.now();
+  notifyStats();
+  setLatestMoodInStore(stats.latestMood ?? null, tokenKey);
+  AsyncStorage.setItem(
+    `${STORAGE_STATS_PREFIX}${getTokenBucket(tokenKey)}`,
+    JSON.stringify(stats)
+  ).catch(() => {});
+}
+
+async function refreshStatsMoodFromServer(token: string | null, tokenKey: string | null) {
+  try {
+    const res = await thoughtsService.getStats(token);
+    if (res.success && res.data?.stats && _statsTokenKey === tokenKey) {
+      applyStatsSnapshot(res.data.stats, tokenKey);
+    }
+  } catch {
+    // ignore background stats sync errors
+  }
+}
+
 function resetThoughtStoresForToken(tokenKey: string | null) {
   _daysState.days = [];
   _daysState.loading = true;
@@ -137,15 +200,22 @@ function resetThoughtStoresForToken(tokenKey: string | null) {
   _daysState.pendingMutations = 0;
   _streamStates.clear();
   _streamSnapshots.clear();
+  _statsSnapshot = { stats: null, loading: true };
+  _statsLastFetch = 0;
+  _statsTokenKey = tokenKey;
+  _tagsSnapshot = { tags: [], loading: true };
+  _tagsLastFetch = 0;
+  _tagsTokenKey = tokenKey;
   notifyDays();
+  notifyStats();
+  notifyTags();
   _streamListeners.forEach((listeners) => listeners.forEach((fn) => fn()));
+  resetMoodThemeForToken(tokenKey);
 }
 
 function getOrCreateStreamState(dayDate: string, tokenKey: string | null): DayStreamStoreState {
   const existing = _streamStates.get(dayDate);
-  if (existing && existing.tokenKey === tokenKey) {
-    return existing;
-  }
+  if (existing && existing.tokenKey === tokenKey) return existing;
   const fresh: DayStreamStoreState = {
     thoughts: [],
     loading: true,
@@ -167,9 +237,7 @@ async function persistDaysCache(tokenKey: string | null, days: DaySummary[]) {
       `${STORAGE_DAYS_PREFIX}${getTokenBucket(tokenKey)}`,
       JSON.stringify(days)
     );
-  } catch {
-    // ignore storage errors
-  }
+  } catch {}
 }
 
 async function persistStreamCache(
@@ -183,8 +251,74 @@ async function persistStreamCache(
       `${STORAGE_STREAM_PREFIX}${getTokenBucket(tokenKey)}_${dayDate}`,
       JSON.stringify(clean)
     );
+  } catch {}
+}
+
+async function enqueueOfflineThought(tokenKey: string | null, item: QueuedThoughtItem) {
+  try {
+    const key = `${STORAGE_OFFLINE_QUEUE_PREFIX}${getTokenBucket(tokenKey)}`;
+    const raw = await AsyncStorage.getItem(key);
+    const queue: QueuedThoughtItem[] = raw ? JSON.parse(raw) : [];
+    queue.push(item);
+    await AsyncStorage.setItem(key, JSON.stringify(queue));
+  } catch {}
+}
+
+async function flushOfflineQueue(token: string | null) {
+  if (_flushingQueue) return;
+  const tokenKey = token ?? null;
+  const key = `${STORAGE_OFFLINE_QUEUE_PREFIX}${getTokenBucket(tokenKey)}`;
+  try {
+    _flushingQueue = true;
+    const raw = await AsyncStorage.getItem(key);
+    if (!raw) return;
+    const queue: QueuedThoughtItem[] = JSON.parse(raw);
+    if (!Array.isArray(queue) || queue.length === 0) return;
+
+    const remaining: QueuedThoughtItem[] = [];
+    for (let i = 0; i < queue.length; i++) {
+      const item = queue[i];
+      try {
+        const res = await thoughtsService.createThought(
+          {
+            dayDate: item.dayDate,
+            content: item.content,
+            category: item.category,
+            mood: item.mood ?? null,
+            replyToId: item.replyToId ?? null,
+            mentionedPersonIds: item.mentionedPersonIds,
+          },
+          token
+        );
+        if (res.success && res.data?.thought) {
+          const cur = getOrCreateStreamState(item.dayDate, tokenKey);
+          const saved: StreamThought = { ...res.data.thought, clientKey: item.tempId };
+          const idx = cur.thoughts.findIndex(
+            (t) => t.id === item.tempId || t.clientKey === item.tempId
+          );
+          if (idx !== -1) {
+            const next = [...cur.thoughts];
+            next[idx] = saved;
+            cur.thoughts = next;
+          } else {
+            cur.thoughts = [...cur.thoughts, saved];
+          }
+          notifyStream(item.dayDate);
+          persistStreamCache(tokenKey, item.dayDate, cur.thoughts);
+        } else {
+          remaining.push(item);
+        }
+      } catch {
+        remaining.push(...queue.slice(i));
+        break;
+      }
+    }
+
+    await AsyncStorage.setItem(key, JSON.stringify(remaining));
   } catch {
-    // ignore storage errors
+    // ignore
+  } finally {
+    _flushingQueue = false;
   }
 }
 
@@ -205,9 +339,7 @@ async function hydrateDaysFromStorage(tokenKey: string | null) {
         notifyDays();
       }
     }
-  } catch {
-    // ignore
-  }
+  } catch {}
 }
 
 async function hydrateStreamFromStorage(tokenKey: string | null, dayDate: string) {
@@ -228,9 +360,7 @@ async function hydrateStreamFromStorage(tokenKey: string | null, dayDate: string
         notifyStream(dayDate);
       }
     }
-  } catch {
-    // ignore
-  }
+  } catch {}
 }
 
 function syncDaySummaryFromStream(dayDate: string, streamThoughts: StreamThought[]) {
@@ -269,6 +399,11 @@ function syncDaySummaryFromStream(dayDate: string, streamThoughts: StreamThought
   persistDaysCache(_daysState.tokenKey, _daysState.days);
 }
 
+function bumpAnalyticsInvalidation() {
+  _statsLastFetch = 0;
+  _tagsLastFetch = 0;
+}
+
 async function fetchDaysInternal(token: string | null, isSilent = false) {
   const tokenKey = token ?? null;
   if (_daysState.tokenKey !== tokenKey) {
@@ -294,6 +429,7 @@ async function fetchDaysInternal(token: string | null, isSilent = false) {
 
   const startVersion = _daysState.mutationVersion;
   try {
+    await flushOfflineQueue(token);
     const res = await thoughtsService.getDays(token);
     if (_daysState.tokenKey !== tokenKey) return;
     if (_daysState.mutationVersion !== startVersion || _daysState.pendingMutations > 0) {
@@ -352,6 +488,144 @@ export function useThoughts() {
   };
 }
 
+export function useThoughtsStats() {
+  const { token } = useAuth();
+  const tokenKey = token ?? null;
+  const [snapshot, setSnapshot] = useState<StatsSnapshot>(() =>
+    _statsTokenKey === tokenKey ? _statsSnapshot : { stats: null, loading: true }
+  );
+
+  useEffect(() => {
+    if (_statsTokenKey === tokenKey) {
+      setSnapshot(_statsSnapshot);
+    }
+    const listener = () => setSnapshot(_statsSnapshot);
+    _statsListeners.add(listener);
+    return () => {
+      _statsListeners.delete(listener);
+    };
+  }, [tokenKey]);
+
+  const fetchStats = useCallback(
+    async (force = false) => {
+      if (_statsTokenKey !== tokenKey) {
+        _statsTokenKey = tokenKey;
+        _statsSnapshot = { stats: null, loading: true };
+        _statsLastFetch = 0;
+        notifyStats();
+      }
+      if (!_statsSnapshot.stats) {
+        try {
+          const raw = await AsyncStorage.getItem(`${STORAGE_STATS_PREFIX}${getTokenBucket(tokenKey)}`);
+          if (raw) {
+            const parsedStats = JSON.parse(raw) as ThoughtsStats;
+            _statsSnapshot = { stats: parsedStats, loading: false };
+            notifyStats();
+            if (parsedStats?.latestMood) {
+              applyInitialMoodStatsIfEmpty(parsedStats.latestMood, tokenKey);
+            }
+          }
+        } catch {}
+      }
+
+      if (!force && _statsLastFetch > 0 && Date.now() - _statsLastFetch < SILENT_REFETCH_THROTTLE_MS) {
+        return;
+      }
+
+      try {
+        const res = await thoughtsService.getStats(token);
+        if (res.success && res.data?.stats) {
+          applyStatsSnapshot(res.data.stats, tokenKey);
+        }
+      } catch {
+        _statsSnapshot = { ..._statsSnapshot, loading: false };
+        notifyStats();
+      }
+    },
+    [token, tokenKey]
+  );
+
+  useEffect(() => {
+    fetchStats(false);
+  }, [fetchStats]);
+
+  return {
+    stats: snapshot.stats,
+    loading: snapshot.loading,
+    fetchStats,
+  };
+}
+
+export function useTags() {
+  const { token } = useAuth();
+  const tokenKey = token ?? null;
+  const [snapshot, setSnapshot] = useState<TagsSnapshot>(() =>
+    _tagsTokenKey === tokenKey ? _tagsSnapshot : { tags: [], loading: true }
+  );
+
+  useEffect(() => {
+    if (_tagsTokenKey === tokenKey) {
+      setSnapshot(_tagsSnapshot);
+    }
+    const listener = () => setSnapshot(_tagsSnapshot);
+    _tagsListeners.add(listener);
+    return () => {
+      _tagsListeners.delete(listener);
+    };
+  }, [tokenKey]);
+
+  const fetchTags = useCallback(
+    async (force = false) => {
+      if (_tagsTokenKey !== tokenKey) {
+        _tagsTokenKey = tokenKey;
+        _tagsSnapshot = { tags: [], loading: true };
+        _tagsLastFetch = 0;
+        notifyTags();
+      }
+      if (_tagsSnapshot.tags.length === 0) {
+        try {
+          const raw = await AsyncStorage.getItem(`${STORAGE_TAGS_PREFIX}${getTokenBucket(tokenKey)}`);
+          if (raw) {
+            _tagsSnapshot = { tags: JSON.parse(raw), loading: false };
+            notifyTags();
+          }
+        } catch {}
+      }
+
+      if (!force && _tagsLastFetch > 0 && Date.now() - _tagsLastFetch < SILENT_REFETCH_THROTTLE_MS) {
+        return;
+      }
+
+      try {
+        const res = await thoughtsService.getTags(token);
+        if (res.success && res.data?.tags) {
+          _tagsSnapshot = { tags: res.data.tags, loading: false };
+          _tagsLastFetch = Date.now();
+          notifyTags();
+          AsyncStorage.setItem(
+            `${STORAGE_TAGS_PREFIX}${getTokenBucket(tokenKey)}`,
+            JSON.stringify(res.data.tags)
+          ).catch(() => {});
+        }
+      } catch {
+        _tagsSnapshot = { ..._tagsSnapshot, loading: false };
+        notifyTags();
+      }
+    },
+    [token, tokenKey]
+  );
+
+  useEffect(() => {
+    fetchTags(false);
+  }, [fetchTags]);
+
+  return {
+    tags: snapshot.tags,
+    loading: snapshot.loading,
+    fetchTags,
+  };
+}
+
 export function useDayStream(dayDate: string) {
   const { token } = useAuth();
   const tokenKey = token ?? null;
@@ -400,6 +674,7 @@ export function useDayStream(dayDate: string) {
 
       const startVersion = state.mutationVersion;
       try {
+        await flushOfflineQueue(token);
         const res = await thoughtsService.getDayThoughts(date, token);
         const cur = getOrCreateStreamState(date, tokenKey);
         if (cur.mutationVersion !== startVersion || cur.pendingMutations > 0) {
@@ -410,6 +685,9 @@ export function useDayStream(dayDate: string) {
           cur.thoughts = res.data.thoughts;
           cur.lastFetchAt = Date.now();
           persistStreamCache(tokenKey, date, res.data.thoughts);
+          if (res.data.mentionedPeople && res.data.mentionedPeople.length > 0) {
+            upsertKnownPeopleInStore(res.data.mentionedPeople, tokenKey);
+          }
         }
       } catch {
         const cur = getOrCreateStreamState(date, tokenKey);
@@ -430,20 +708,25 @@ export function useDayStream(dayDate: string) {
     fetchThoughts(state.thoughts.length > 0 && state.lastFetchAt > 0);
   }, [date, tokenKey, fetchThoughts]);
 
-  // Send a new thought: updates chat, day summary, AND mentioned people instantly in 0ms
   const addThought = useCallback(
     async (
       content: string,
       category: ThoughtCategory = 'thinking',
       mentionedPersonIds?: string[],
-      clientKeyOverride?: string
+      clientKeyOverride?: string,
+      options?: {
+        mood?: ThoughtMood | null;
+        replyTo?: Thought | null;
+      }
     ) => {
       const trimmed = content.trim();
       if (!trimmed) return null;
 
       const state = getOrCreateStreamState(date, tokenKey);
-      const tempId = clientKeyOverride || `temp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const tempId =
+        clientKeyOverride || `temp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
       const nowIso = new Date().toISOString();
+      const extractedTags = extractHashtagsFromText(trimmed);
 
       const optimisticThought: StreamThought = {
         id: tempId,
@@ -452,10 +735,15 @@ export function useDayStream(dayDate: string) {
         day_date: date,
         content: trimmed,
         category,
+        mood: options?.mood ?? null,
+        tags: extractedTags,
+        is_starred: false,
+        reply_to_id: options?.replyTo?.id ?? null,
+        reply_to_preview: options?.replyTo?.content ?? null,
+        reply_to_category: options?.replyTo?.category ?? null,
         created_at: nowIso,
       };
 
-      // 1. Instant 0ms reactive update across stream, days list, and people mentions
       state.mutationVersion += 1;
       state.pendingMutations += 1;
       _daysState.pendingMutations += 1;
@@ -464,11 +752,14 @@ export function useDayStream(dayDate: string) {
       notifyStream(date);
 
       syncDaySummaryFromStream(date, state.thoughts);
+      bumpAnalyticsInvalidation();
+      if (options?.mood) {
+        setLatestMoodInStore(options.mood, tokenKey);
+      }
       if (trimmed.includes('@')) {
         applyOptimisticMentionInStore(optimisticThought, mentionedPersonIds);
       }
 
-      // 2. Persist to server in background without blocking UI
       (async () => {
         try {
           const resolvedMentionIds =
@@ -481,6 +772,11 @@ export function useDayStream(dayDate: string) {
               dayDate: date,
               content: trimmed,
               category,
+              mood: options?.mood ?? null,
+              replyToId:
+                options?.replyTo?.id && !options.replyTo.id.startsWith('temp_')
+                  ? options.replyTo.id
+                  : null,
               ...(resolvedMentionIds && resolvedMentionIds.length > 0
                 ? { mentionedPersonIds: resolvedMentionIds }
                 : {}),
@@ -494,7 +790,7 @@ export function useDayStream(dayDate: string) {
 
           const savedThought: StreamThought = {
             ...res.data.thought,
-            clientKey: tempId, // Keep React key identical to prevent flicker/re-animation
+            clientKey: tempId,
           };
 
           const cur = getOrCreateStreamState(date, tokenKey);
@@ -513,16 +809,26 @@ export function useDayStream(dayDate: string) {
           if (trimmed.includes('@')) {
             replaceOptimisticMentionThoughtInStore(tempId, savedThought);
           }
-        } catch (err: any) {
+        } catch {
+          // Queue offline so user never loses thoughts when offline!
           const cur = getOrCreateStreamState(date, tokenKey);
-          cur.thoughts = cur.thoughts.filter((t) => t.id !== tempId && t.clientKey !== tempId);
-          cur.error = err?.message || 'Failed to save thought';
+          cur.thoughts = cur.thoughts.map((t) =>
+            t.id === tempId ? { ...t, pendingOffline: true } : t
+          );
           notifyStream(date);
-          syncDaySummaryFromStream(date, cur.thoughts);
-          if (trimmed.includes('@')) {
-            removeOptimisticMentionThoughtsInStore([tempId]);
-          }
-          Alert.alert('Could not save thought', 'Please check your connection and try again.');
+          enqueueOfflineThought(tokenKey, {
+            tempId,
+            dayDate: date,
+            content: trimmed,
+            category,
+            mood: options?.mood ?? null,
+            replyToId:
+              options?.replyTo?.id && !options.replyTo.id.startsWith('temp_')
+                ? options.replyTo.id
+                : null,
+            mentionedPersonIds,
+            createdAt: nowIso,
+          });
         } finally {
           const cur = getOrCreateStreamState(date, tokenKey);
           cur.pendingMutations = Math.max(0, cur.pendingMutations - 1);
@@ -535,7 +841,78 @@ export function useDayStream(dayDate: string) {
     [date, token, tokenKey]
   );
 
-  // Remove a single thought instantly across stream, days list, and people mentions
+  const editThought = useCallback(
+    async (
+      id: string,
+      updates: {
+        content?: string;
+        mood?: ThoughtMood | null;
+        isStarred?: boolean;
+        mentionedPersonIds?: string[];
+      }
+    ) => {
+      const state = getOrCreateStreamState(date, tokenKey);
+      const target = state.thoughts.find((t) => t.id === id);
+      if (!target) return;
+
+      const nextContent =
+        typeof updates.content === 'string' ? updates.content.trim() : target.content;
+      const optimistic: StreamThought = {
+        ...target,
+        content: nextContent,
+        tags: extractHashtagsFromText(nextContent),
+        ...(updates.mood !== undefined ? { mood: updates.mood } : {}),
+        ...(typeof updates.isStarred === 'boolean' ? { is_starred: updates.isStarred } : {}),
+        updated_at: new Date().toISOString(),
+      };
+
+      state.mutationVersion += 1;
+      state.pendingMutations += 1;
+      state.thoughts = state.thoughts.map((t) => (t.id === id ? optimistic : t));
+      notifyStream(date);
+      syncDaySummaryFromStream(date, state.thoughts);
+      bumpAnalyticsInvalidation();
+      persistStreamCache(tokenKey, date, state.thoughts);
+      if (updates.mood) {
+        setLatestMoodInStore(updates.mood, tokenKey);
+      }
+
+      if (!id.startsWith('temp_')) {
+        try {
+          const res = await thoughtsService.updateThought(id, updates, token);
+          if (res.success && res.data?.thought) {
+            const cur = getOrCreateStreamState(date, tokenKey);
+            cur.thoughts = cur.thoughts.map((t) =>
+              t.id === id ? { ...res.data!.thought, clientKey: t.clientKey || id } : t
+            );
+            notifyStream(date);
+            persistStreamCache(tokenKey, date, cur.thoughts);
+            if (updates.mood === null) {
+              refreshStatsMoodFromServer(token, tokenKey);
+            }
+          }
+        } catch {
+          // keep optimistic update
+        } finally {
+          state.pendingMutations = Math.max(0, state.pendingMutations - 1);
+        }
+      } else {
+        state.pendingMutations = Math.max(0, state.pendingMutations - 1);
+      }
+    },
+    [date, token, tokenKey]
+  );
+
+  const toggleStarThought = useCallback(
+    async (id: string) => {
+      const state = getOrCreateStreamState(date, tokenKey);
+      const target = state.thoughts.find((t) => t.id === id);
+      if (!target) return;
+      await editThought(id, { isStarred: !target.is_starred });
+    },
+    [date, tokenKey, editThought]
+  );
+
   const removeThought = useCallback(
     async (id: string) => {
       const state = getOrCreateStreamState(date, tokenKey);
@@ -546,12 +923,16 @@ export function useDayStream(dayDate: string) {
       state.thoughts = state.thoughts.filter((t) => t.id !== id);
       notifyStream(date);
       syncDaySummaryFromStream(date, state.thoughts);
+      bumpAnalyticsInvalidation();
       removeOptimisticMentionThoughtsInStore([id]);
       persistStreamCache(tokenKey, date, state.thoughts);
 
       if (!id.startsWith('temp_')) {
         thoughtsService
           .deleteThought(id, token)
+          .then(() => {
+            refreshStatsMoodFromServer(token, tokenKey);
+          })
           .catch(() => {})
           .finally(() => {
             state.pendingMutations = Math.max(0, state.pendingMutations - 1);
@@ -565,7 +946,6 @@ export function useDayStream(dayDate: string) {
     [date, token, tokenKey]
   );
 
-  // Remove multiple thoughts instantly across stream, days list, and people mentions
   const removeThoughts = useCallback(
     async (ids: string[]) => {
       const idSet = new Set(ids);
@@ -577,6 +957,7 @@ export function useDayStream(dayDate: string) {
       state.thoughts = state.thoughts.filter((t) => !idSet.has(t.id));
       notifyStream(date);
       syncDaySummaryFromStream(date, state.thoughts);
+      bumpAnalyticsInvalidation();
       removeOptimisticMentionThoughtsInStore(ids);
       persistStreamCache(tokenKey, date, state.thoughts);
 
@@ -584,6 +965,9 @@ export function useDayStream(dayDate: string) {
       if (serverIds.length > 0) {
         thoughtsService
           .bulkDeleteThoughts(serverIds, token)
+          .then(() => {
+            refreshStatsMoodFromServer(token, tokenKey);
+          })
           .catch(() => {})
           .finally(() => {
             state.pendingMutations = Math.max(0, state.pendingMutations - 1);
@@ -605,6 +989,8 @@ export function useDayStream(dayDate: string) {
     error: snapshot.error,
     fetchThoughts,
     addThought,
+    editThought,
+    toggleStarThought,
     removeThought,
     removeThoughts,
   };

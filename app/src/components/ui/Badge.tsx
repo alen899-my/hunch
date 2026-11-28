@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, StyleSheet, ViewStyle } from 'react-native';
 import { Colors, FontSize, Radius, Spacing } from '@/theme';
+import { useThemeColors } from '@/hooks/use-mood-theme';
 import { AppText } from './AppText';
 
 type BadgeColor = 'amber' | 'pink' | 'purple' | 'green' | 'blue' | 'default';
@@ -22,7 +23,11 @@ const colorMap: Record<BadgeColor, { bg: string; text: string }> = {
 };
 
 export function Badge({ label, color = 'default', style, dot }: BadgeProps) {
-  const { bg, text } = colorMap[color];
+  const colors = useThemeColors();
+  const { bg, text } =
+    color === 'green'
+      ? { bg: colors.tagGreen, text: colors.tagGreenText }
+      : colorMap[color];
   return (
     <View style={[styles.base, { backgroundColor: bg }, style]}>
       {dot && <View style={[styles.dot, { backgroundColor: text }]} />}

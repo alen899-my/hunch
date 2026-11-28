@@ -21,6 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText } from '@/components/ui';
 import { Colors, Spacing, Radius, FontFamily, FontSize, Shadow } from '@/theme';
+import { useThemeColors } from '@/hooks/use-mood-theme';
 import { getSafeBottomPadding, getSafeTopPadding } from '@/utils/safe-area';
 
 export interface CameraResult {
@@ -40,6 +41,7 @@ interface CustomCameraProps {
 }
 
 export function CustomCameraModal({ visible, mode = 'both', onCapture, onClose }: CustomCameraProps) {
+  const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission] = useMicrophonePermissions();
@@ -167,13 +169,13 @@ export function CustomCameraModal({ visible, mode = 'both', onCapture, onClose }
         onRequestClose={onClose}
       >
         <View style={styles.permissionOverlay}>
-          <View style={styles.permissionCard}>
+          <View style={[styles.permissionCard, { backgroundColor: colors.background }]}>
             <Ionicons name="camera-outline" size={48} color={Colors.textSecondary} />
             <AppText style={styles.permissionTitle}>Camera Access Needed</AppText>
             <AppText variant="body" color={Colors.textSecondary} align="center" style={{ marginBottom: Spacing[4] }}>
               Grant camera permission to take photos and record videos.
             </AppText>
-            <TouchableOpacity onPress={requestPermission} style={styles.permissionBtn} activeOpacity={0.88}>
+            <TouchableOpacity onPress={requestPermission} style={[styles.permissionBtn, { backgroundColor: colors.primary }]} activeOpacity={0.88}>
               <AppText style={styles.permissionBtnText}>Grant Permission</AppText>
             </TouchableOpacity>
             <TouchableOpacity onPress={onClose} hitSlop={8} style={{ marginTop: Spacing[3] }}>

@@ -7,18 +7,21 @@ import {
   KeyboardAvoidingView,
   Platform,
   useWindowDimensions,
+  Alert,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons, AntDesign } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText, Button, Divider, Input } from '@/components/ui';
 import { Colors, Spacing, FontSize } from '@/theme';
+import { useThemeColors } from '@/hooks/use-mood-theme';
 import { useAuth } from '@/hooks/use-auth';
 import { getSafeBottomPadding } from '@/utils/safe-area';
 
 const TABLET = 600;
 
 export default function LoginScreen() {
+  const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isTablet = width >= TABLET;
@@ -54,7 +57,7 @@ export default function LoginScreen() {
   const safeBottom = getSafeBottomPadding(insets.bottom, Spacing[8], 60, 44);
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top']}>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -142,7 +145,7 @@ export default function LoginScreen() {
               ) : null}
 
               <TouchableOpacity style={styles.forgotRow}>
-                <AppText variant="label" color={Colors.primary}>Forgot password?</AppText>
+                <AppText variant="label" color={colors.primary}>Forgot password?</AppText>
               </TouchableOpacity>
 
               <Button
@@ -158,7 +161,12 @@ export default function LoginScreen() {
                 label="Continue with Google"
                 variant="secondary"
                 size="lg"
-                onPress={() => { /* Google flow */ }}
+                onPress={() =>
+                  Alert.alert(
+                    'Google Sign-In',
+                    'Add your Google OAuth Client ID in server/.env to enable one-tap Google sign-in, or sign in with your email above.'
+                  )
+                }
                 leftIcon={<AntDesign name="google" size={18} color="#4285F4" />}
               />
             </View>
@@ -169,7 +177,7 @@ export default function LoginScreen() {
                 Don't have an account?{' '}
               </AppText>
               <TouchableOpacity onPress={() => router.push('/signup')}>
-                <AppText variant="bodyMd" color={Colors.primary}>Sign up</AppText>
+                <AppText variant="bodyMd" color={colors.primary}>Sign up</AppText>
               </TouchableOpacity>
             </View>
 

@@ -33,6 +33,42 @@ const createThought = async (req, res) => {
   }
 };
 
+const updateThought = async (req, res) => {
+  try {
+    const thought = await service.editThought(req.user.id, req.params.id, req.body);
+    ok(res, { thought }, 'Thought updated');
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+const searchThoughts = async (req, res) => {
+  try {
+    const thoughts = await service.searchThoughts(req.user.id, req.query);
+    ok(res, { thoughts });
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+const getTags = async (req, res) => {
+  try {
+    const tags = await service.getTags(req.user.id);
+    ok(res, { tags });
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+const getStats = async (req, res) => {
+  try {
+    const stats = await service.getStats(req.user.id);
+    ok(res, { stats });
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
 const deleteThought = async (req, res) => {
   try {
     const deleted = await service.removeThought(req.user.id, req.params.id);
@@ -56,6 +92,10 @@ module.exports = {
   getDays,
   getDayStream,
   createThought,
+  updateThought,
+  searchThoughts,
+  getTags,
+  getStats,
   deleteThought,
   bulkDeleteThoughts,
 };

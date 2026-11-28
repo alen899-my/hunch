@@ -9,6 +9,7 @@ import {
   TextInputProps,
 } from 'react-native';
 import { Colors, FontFamily, FontSize, Radius, Shadow, Size, Spacing } from '@/theme';
+import { useThemeColors } from '@/hooks/use-mood-theme';
 import { AppText } from './AppText';
 
 interface InputProps extends Omit<TextInputProps, 'style'> {
@@ -31,12 +32,13 @@ export function Input({
   inputStyle,
   ...rest
 }: InputProps) {
+  const colors = useThemeColors();
   const [focused, setFocused] = useState(false);
 
   const borderColor = error
     ? Colors.error
     : focused
-    ? Colors.borderFocus
+    ? colors.borderFocus
     : Colors.border;
 
   return (
@@ -94,6 +96,7 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
+    minWidth: 0,
     fontFamily: FontFamily.regular,
     fontSize: FontSize.md,
     color: Colors.text,
@@ -101,7 +104,7 @@ const styles = StyleSheet.create({
   },
   inputWithLeft:  { paddingLeft: 8 },
   inputWithRight: { paddingRight: 8 },
-  iconLeft:  { marginRight: 4 },
-  iconRight: { marginLeft: 4 },
+  iconLeft:  { marginRight: 4, flexShrink: 0 },
+  iconRight: { marginLeft: 4, flexShrink: 0 },
   hint: { marginLeft: 2, marginTop: 2 },
 });

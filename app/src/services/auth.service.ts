@@ -33,3 +33,25 @@ export const googleSignIn = (idToken: string) =>
 // Get current user (requires token)
 export const getMe = (token: string) =>
   apiRequest<{ user: User }>('/auth/me', { token });
+
+// Update current user profile
+export const updateMe = (
+  data: { name?: string; phone?: string | null; avatar?: string | null },
+  token?: string | null
+) =>
+  apiRequest<{ user: User }>('/auth/me', {
+    method: 'PATCH',
+    body: data,
+    token,
+  });
+
+// Change password using old and new password
+export const changePassword = (
+  data: { oldPassword?: string; newPassword: string },
+  token?: string | null
+) =>
+  apiRequest<{ updated: boolean; token?: string }>('/auth/change-password', {
+    method: 'POST',
+    body: data,
+    token,
+  });

@@ -21,6 +21,7 @@ import {
 } from 'expo-audio';
 import { AppText } from '@/components/ui';
 import { Colors, Spacing, Radius, FontFamily, FontSize, Shadow } from '@/theme';
+import { useThemeColors } from '@/hooks/use-mood-theme';
 import { getSafeBottomPadding } from '@/utils/safe-area';
 
 export interface AudioUploadResult {
@@ -43,6 +44,7 @@ type RecordingState = 'idle' | 'recording' | 'paused' | 'done';
 const SPIKE_BARS = [16, 26, 42, 54, 38, 22, 32, 48, 60, 44, 28, 36, 52, 40, 24, 34, 50, 36, 20];
 
 export function AudioRecorderModal({ visible, onClose, onUpload }: AudioRecorderProps) {
+  const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const [state, setState] = useState<RecordingState>('idle');
   const [duration, setDuration] = useState(0);
@@ -288,30 +290,31 @@ export function AudioRecorderModal({ visible, onClose, onUpload }: AudioRecorder
       onRequestClose={handleClose}
     >
       <Pressable style={styles.backdrop} onPress={handleClose} />
-      <View style={[styles.sheetContainer, { paddingBottom: safeBottom }]}>
-        <View style={styles.handleBar} />
+      <View pointerEvents="box-none" style={styles.sheetOuter}>
+        <View style={[styles.sheetContainer, { paddingBottom: safeBottom }]}>
+          <View style={styles.handleBar} />
 
-        {/* Header */}
-        <View style={styles.headerRow}>
-          <View>
-            <AppText style={styles.sheetTitle}>
-              {state === 'done' ? 'Voice Note Ready' : 'Record Voice Note'}
-            </AppText>
-            <AppText variant="caption" color={Colors.textSecondary}>
-              {state === 'recording'
-                ? 'Recording... speak now'
-                : state === 'paused'
-                ? 'Recording paused'
-                : state === 'done'
-                ? 'Listen before sending'
-                : 'Tap the mic to begin recording'}
-            </AppText>
+          {/* Header */}
+          <View style={styles.headerRow}>
+            <View style={styles.headerTextWrap}>
+              <AppText style={styles.sheetTitle} numberOfLines={1}>
+                {state === 'done' ? 'Voice Note Ready' : 'Record Voice Note'}
+              </AppText>
+              <AppText variant="caption" color={Colors.textSecondary} numberOfLines={1}>
+                {state === 'recording'
+                  ? 'Recording... speak now'
+                  : state === 'paused'
+                  ? 'Recording paused'
+                  : state === 'done'
+                  ? 'Listen before sending'
+                  : 'Tap the mic to begin recording'}
+              </AppText>
+            </View>
+
+            <TouchableOpacity onPress={handleClose} style={styles.closeBtn} hitSlop={8}>
+              <Ionicons name="close" size={22} color={Colors.textSecondary} />
+            </TouchableOpacity>
           </View>
-
-          <TouchableOpacity onPress={handleClose} style={styles.closeBtn} hitSlop={8}>
-            <Ionicons name="close" size={22} color={Colors.textSecondary} />
-          </TouchableOpacity>
-        </View>
 
         {/* Animated Spike Lines Waveform Visualizer */}
         <View style={styles.waveformContainer}>
@@ -329,9 +332,9 @@ export function AudioRecorderModal({ visible, onClose, onUpload }: AudioRecorder
                     height: h,
                     backgroundColor:
                       state === 'recording'
-                        ? Colors.primary
+                        ? colors.primary
                         : isPlayingBar
-                        ? Colors.primary
+                        ? colors.primary
                         : state === 'done'
                         ? '#5B9E5F'
                         : '#DCD8CE',
@@ -347,7 +350,7 @@ export function AudioRecorderModal({ visible, onClose, onUpload }: AudioRecorder
         <AppText
           style={[
             styles.timerText,
-            state === 'recording' && { color: Colors.primary },
+            state === 'recording' && { color: colors.primary },
             state === 'done' && { color: '#5B9E5F' },
           ]}
         >
@@ -381,7 +384,7 @@ export function AudioRecorderModal({ visible, onClose, onUpload }: AudioRecorder
             )}
             {state === 'paused' && (
               <TouchableOpacity onPress={resumeRecording} style={styles.sideControlBtn} hitSlop={8}>
-                <Ionicons name="play-circle-outline" size={28} color={Colors.primary} />
+                <Ionicons name="play-circle-outline" size={28} color={colors.primary} />
               </TouchableOpacity>
             )}
             {state === 'idle' && <View style={styles.sideControlBtn} />}
@@ -394,7 +397,7 @@ export function AudioRecorderModal({ visible, onClose, onUpload }: AudioRecorder
                 <Ionicons
                   name={isPlayingPreview ? 'pause-circle' : 'play-circle'}
                   size={48}
-                  color={Colors.primary}
+                  color={colors.primary}
                 />
               </TouchableOpacity>
               <View style={styles.playbackInfo}>
@@ -428,7 +431,7 @@ export function AudioRecorderModal({ visible, onClose, onUpload }: AudioRecorder
               {/* Send voice note to chat */}
               <TouchableOpacity
                 onPress={handleSend}
-                style={styles.sendConfirmBtn}
+                style={[styles.sendConfirmBtn, { backgroundColor: colors.primary }]}
                 activeOpacity={0.88}
               >
                 <Ionicons name="arrow-up" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
@@ -437,6 +440,7 @@ export function AudioRecorderModal({ visible, onClose, onUpload }: AudioRecorder
             </View>
           </View>
         )}
+        </View>
       </View>
     </Modal>
   );
@@ -447,11 +451,16 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0, 0, 0, 0.48)',
   },
-  sheetContainer: {
+  sheetOuter: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
+    alignItems: 'center',
+  },
+  sheetContainer: {
+    width: '100%',
+    maxWidth: 540,
     backgroundColor: Colors.surface,
     borderTopLeftRadius: Radius.xl,
     borderTopRightRadius: Radius.xl,
@@ -473,6 +482,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: Spacing[2],
+  },
+  headerTextWrap: {
+    flex: 1,
+    minWidth: 0,
   },
   sheetTitle: {
     fontFamily: FontFamily.editorial,
@@ -483,6 +497,7 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
+    flexShrink: 0,
     backgroundColor: Colors.surfaceAlt,
     alignItems: 'center',
     justifyContent: 'center',

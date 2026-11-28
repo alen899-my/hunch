@@ -8,6 +8,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Animated,
+  Easing,
   useWindowDimensions,
   Alert,
   RefreshControl,
@@ -19,24 +20,39 @@ import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
-import { AppText } from '@/components/ui';
+import * as Haptics from 'expo-haptics';
+import { AppText, DatePickerModal } from '@/components/ui';
 import { Colors, Spacing, Radius, FontFamily, FontSize, Shadow } from '@/theme';
 import { getSafeBottomPadding } from '@/utils/safe-area';
-import { useDayStream, type StreamThought } from '@/hooks/use-thoughts';
-import { usePeople, type SavePersonInput } from '@/hooks/use-people';
-import type { Thought } from '@/services/thoughts.service';
+import { useThemeColors } from '@/hooks/use-mood-theme';
+import { useThoughts, useDayStream, useTags, type StreamThought } from '@/hooks/use-thoughts';
+import {
+  usePeople,
+  useMentionPeopleSearch,
+  upsertKnownPeopleInStore,
+  type SavePersonInput,
+} from '@/hooks/use-people';
+import type { Thought, ThoughtMood } from '@/services/thoughts.service';
 import type { Person } from '@/services/people.service';
 import { uploadToR2 } from '@/services/upload.service';
 import { playTypewriterSound } from '@/services/typewriter-sound.service';
 import { MentionSuggestionsBox } from '@/features/people/components/MentionSuggestionsBox';
 import { MentionText } from '@/features/people/components/MentionText';
 import { AddEditPersonModal } from '@/features/people/components/AddEditPersonModal';
+import { TagSuggestionsBox } from '../components/TagSuggestionsBox';
 import {
   getActiveMentionTrigger,
-  filterPeopleForMention,
   insertMentionAtTrigger,
+  parseMentionSegments,
 } from '@/features/people/utils/mentions';
-import { TypewriterKeyboard } from '../components/TypewriterKeyboard';
+import { getActiveTagTrigger, insertTagAtTrigger } from '../utils/tags';
+import {
+  EMOTION_LIST,
+  EMOTION_MAP,
+  serializeEmotionThought,
+  parseEmotionThought,
+  type EmotionDef,
+} from '../utils/emotions';
 import { CustomCameraModal, CameraResult } from '../components/CustomCameraModal';
 import { AudioRecorderModal } from '../components/AudioRecorderModal';
 import type { AudioUploadResult } from '../components/AudioRecorderModal';
@@ -67,8 +83,13 @@ function formatTime(isoStr: string) {
 }
 
 export default function ThoughtChatScreen() {
+  const colors = useThemeColors();
   const insets = useSafeAreaInsets();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, prompt, mood: initialMoodParam } = useLocalSearchParams<{
+    id: string;
+    prompt?: string;
+    mood?: string;
+  }>();
   const dayDate = typeof id === 'string' ? id : new Date().toISOString().split('T')[0];
 
   const { width } = useWindowDimensions();
@@ -76,12 +97,29 @@ export default function ThoughtChatScreen() {
   const isSmallPhone = width < 370;
   const maxW = isTablet ? 580 : undefined;
 
-  const { thoughts, loading, addThought, removeThought, removeThoughts, fetchThoughts } =
-    useDayStream(dayDate);
-  const { people, fetchPeople, addPerson } = usePeople();
+  const {
+    thoughts,
+    loading,
+    addThought,
+    editThought,
+    toggleStarThought,
+    removeThought,
+    removeThoughts,
+    fetchThoughts,
+  } = useDayStream(dayDate);
+  const { days } = useThoughts();
+  const { people, addPerson } = usePeople({ autoFetch: false });
+  const { tags, fetchTags } = useTags();
   const [text, setText] = useState('');
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [selectedMood, setSelectedMood] = useState<ThoughtMood | null>(null);
+  const [showMoodBar, setShowMoodBar] = useState(false);
+  const [emojiBursts, setEmojiBursts] = useState<{ id: number; emoji: string }[]>([]);
+  const [replyingTo, setReplyingTo] = useState<StreamThought | null>(null);
+  const [editingThought, setEditingThought] = useState<StreamThought | null>(null);
   const [cursorIndex, setCursorIndex] = useState(0);
   const [dismissedAtIndex, setDismissedAtIndex] = useState<number | null>(null);
+  const [dismissedHashIndex, setDismissedHashIndex] = useState<number | null>(null);
   const [selectedMentionIds, setSelectedMentionIds] = useState<string[]>([]);
   const [showQuickAddPerson, setShowQuickAddPerson] = useState(false);
   const [quickAddInitialName, setQuickAddInitialName] = useState('');
@@ -89,7 +127,6 @@ export default function ThoughtChatScreen() {
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const [showCustomCamera, setShowCustomCamera] = useState(false);
   const [showAudioRecorder, setShowAudioRecorder] = useState(false);
-  const [showTypewriterKeyboard, setShowTypewriterKeyboard] = useState(false);
   const [pendingMedia, setPendingMedia] = useState<PendingMedia | null>(null);
   const [optimisticThoughts, setOptimisticThoughts] = useState<StreamThought[]>([]);
   const [uploadJobs, setUploadJobs] = useState<Record<string, UploadJob>>({});
@@ -112,9 +149,19 @@ export default function ThoughtChatScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      fetchPeople(true);
-    }, [fetchPeople])
+      fetchTags(true);
+    }, [fetchTags])
   );
+
+  useEffect(() => {
+    if (typeof prompt === 'string' && prompt.trim()) {
+      setText(prompt);
+      setCursorIndex(prompt.length);
+    }
+    if (typeof initialMoodParam === 'string' && EMOTION_MAP[initialMoodParam]) {
+      setShowMoodBar(true);
+    }
+  }, [prompt, initialMoodParam]);
 
   // Send / Mic button bounce animation
   const actionScale = useRef(new Animated.Value(1)).current;
@@ -362,60 +409,40 @@ export default function ThoughtChatScreen() {
     startAudioUpload(tempId, result);
   };
 
-  // ── Vintage Typewriter Keyboard Handlers ────────────────────────────────
-  const handleToggleTypewriter = () => {
-    if (showTypewriterKeyboard) {
-      setShowTypewriterKeyboard(false);
-      setTimeout(() => inputRef.current?.focus(), 80);
-    } else {
-      Keyboard.dismiss();
-      setShowTypewriterKeyboard(true);
-      setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 120);
-    }
-  };
-
-  const handleTypewriterKeyPress = (char: string) => {
-    setText((prev) => {
-      const next = prev + char;
-      setCursorIndex(next.length);
-      return next;
-    });
-  };
-
-  const handleTypewriterBackspace = () => {
-    setText((prev) => {
-      const next = prev.slice(0, -1);
-      setCursorIndex(next.length);
-      if (dismissedAtIndex !== null && next.length <= dismissedAtIndex) {
-        setDismissedAtIndex(null);
-      }
-      return next;
-    });
-  };
-
-  const handleTypewriterSend = () => {
-    handleSend();
-  };
-
-  const handleSwitchToNativeKeyboard = () => {
-    setShowTypewriterKeyboard(false);
-    setTimeout(() => inputRef.current?.focus(), 80);
-  };
-
-  const effectiveCursor = showTypewriterKeyboard ? text.length : cursorIndex;
-  const mentionTrigger = getActiveMentionTrigger(text, effectiveCursor);
-  const filteredMentionPeople = mentionTrigger
-    ? filterPeopleForMention(people, mentionTrigger.query)
-    : [];
-  const showMentionPopup = Boolean(
+  const mentionTrigger = getActiveMentionTrigger(text, cursorIndex);
+  const mentionQuery = mentionTrigger?.query.trim() ?? '';
+  const isMentionTriggerActive = Boolean(
     mentionTrigger &&
       mentionTrigger.startIndex !== dismissedAtIndex &&
-      (filteredMentionPeople.length > 0 || !mentionTrigger.query.includes(' '))
+      mentionQuery.length > 0
   );
+  const { results: filteredMentionPeople, searching: searchingMentions } =
+    useMentionPeopleSearch(mentionTrigger?.query ?? '', isMentionTriggerActive);
+  const showMentionPopup = Boolean(
+    isMentionTriggerActive &&
+      mentionTrigger &&
+      (searchingMentions || filteredMentionPeople.length > 0 || !mentionTrigger.query.includes(' '))
+  );
+
+  const tagTrigger = getActiveTagTrigger(text, cursorIndex);
+  const showTagPopup = Boolean(
+    !showMentionPopup &&
+      tagTrigger &&
+      tagTrigger.startIndex !== dismissedHashIndex
+  );
+
+  const handleSelectTag = (tag: string) => {
+    if (!tagTrigger) return;
+    const { nextText, nextCursorIndex } = insertTagAtTrigger(text, tagTrigger, tag);
+    setText(nextText);
+    setCursorIndex(nextCursorIndex);
+    setDismissedHashIndex(tagTrigger.startIndex);
+  };
 
   const handleSelectMentionPerson = (person: Person) => {
     if (!mentionTrigger) return;
     setShowAttachmentMenu(false);
+    upsertKnownPeopleInStore([person]);
     const { nextText, nextCursorIndex } = insertMentionAtTrigger(text, mentionTrigger, person);
     setText(nextText);
     setCursorIndex(nextCursorIndex);
@@ -445,11 +472,31 @@ export default function ThoughtChatScreen() {
     }
   };
 
-  // ── Text send: instant 0ms chat + mentions + day list update ────────────
+  // ── Direct Emotion Reaction Send: bouncy animation + immediate chat save ─
+  const handleSendEmotion = (emotion: EmotionDef) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    playTypewriterSound('bell');
+
+    const burstId = Date.now() + Math.random();
+    setEmojiBursts((prev) => [...prev.slice(-4), { id: burstId, emoji: emotion.emoji }]);
+    setTimeout(() => {
+      setEmojiBursts((prev) => prev.filter((b) => b.id !== burstId));
+    }, 1550);
+
+    const replyTarget = replyingTo;
+    setReplyingTo(null);
+
+    addThought(serializeEmotionThought(emotion), 'emotion', [], undefined, {
+      mood: emotion.key,
+      replyTo: replyTarget,
+    });
+    setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 60);
+  };
+
+  // ── Text send (or edit confirm): instant 0ms update ────────────────────
   const handleSend = () => {
     if (!text.trim()) return;
 
-    // Authentic carriage return bell ding on send
     playTypewriterSound('bell');
 
     Animated.sequence([
@@ -459,12 +506,31 @@ export default function ThoughtChatScreen() {
 
     const content = text.trim();
     const mentionIdsToSend = [...selectedMentionIds];
-    setText(''); // Instant clear like WhatsApp
+    setText('');
     setCursorIndex(0);
     setDismissedAtIndex(null);
+    setDismissedHashIndex(null);
     setSelectedMentionIds([]);
 
-    addThought(content, 'thinking', mentionIdsToSend);
+    if (editingThought) {
+      const target = editingThought;
+      setEditingThought(null);
+      editThought(target.id, {
+        content,
+        mood: selectedMood,
+        mentionedPersonIds: mentionIdsToSend,
+      });
+      return;
+    }
+
+    const replyTarget = replyingTo;
+    const moodToSend = selectedMood;
+    setReplyingTo(null);
+
+    addThought(content, 'thinking', mentionIdsToSend, undefined, {
+      mood: moodToSend,
+      replyTo: replyTarget,
+    });
     setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 60);
   };
 
@@ -561,19 +627,75 @@ export default function ThoughtChatScreen() {
     }
   };
 
+  const singleSelectedThought =
+    selectedIds.length === 1
+      ? displayThoughts.find((t) => t.id === selectedIds[0]) ?? null
+      : null;
+
+  const isSingleTextThought = Boolean(
+    singleSelectedThought &&
+      !parseAttachmentThought(singleSelectedThought.content) &&
+      !parseEmotionThought(singleSelectedThought.content)
+  );
+
+  const handleStarSelected = () => {
+    if (!singleSelectedThought) return;
+    toggleStarThought(singleSelectedThought.id);
+    setSelectedIds([]);
+  };
+
+  const handleReplySelected = () => {
+    if (!singleSelectedThought) return;
+    setEditingThought(null);
+    setReplyingTo(singleSelectedThought);
+    setSelectedIds([]);
+    setTimeout(() => inputRef.current?.focus(), 80);
+  };
+
+  const handleEditSelected = () => {
+    if (!singleSelectedThought || !isSingleTextThought) return;
+    setReplyingTo(null);
+    setEditingThought(singleSelectedThought);
+    setText(singleSelectedThought.content);
+    setSelectedMood(singleSelectedThought.mood ?? null);
+    setCursorIndex(singleSelectedThought.content.length);
+    setDismissedAtIndex(null);
+    setDismissedHashIndex(null);
+    const existingIds = [
+      ...new Set(
+        parseMentionSegments(singleSelectedThought.content, people)
+          .map((s) => s.person?.id)
+          .filter((pid): pid is string => Boolean(pid))
+      ),
+    ];
+    setSelectedMentionIds(existingIds);
+    setSelectedIds([]);
+    setTimeout(() => inputRef.current?.focus(), 80);
+  };
+
   const hasText = text.trim().length > 0;
-  const chatBottomPadding =
-    keyboardVisible || showTypewriterKeyboard
-      ? Spacing[2]
-      : getSafeBottomPadding(insets.bottom, 18, 48, 32);
+  const chatBottomPadding = keyboardVisible
+    ? Spacing[2]
+    : getSafeBottomPadding(insets.bottom, 18, 48, 32);
+
+  const streamBottomSpacer =
+    chatBottomPadding +
+    76 +
+    (showMoodBar ? 46 : 0) +
+    (replyingTo || editingThought ? 58 : 0);
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      {/* ── 4. Clean Top Bar: ONLY Back, Calendar & Delete (No Today • Sat Nov text) ── */}
+    <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top']}>
+      {/* ── 4. Clean Top Bar: Back, Calendar & Selection Actions (Star, Reply, Edit, Delete) ── */}
       <View
         style={[
           styles.topBar,
-          isSelectionMode && styles.topBarSelection,
+          { backgroundColor: colors.background },
+          isSmallPhone && { paddingHorizontal: Spacing[3] },
+          isSelectionMode && [
+            styles.topBarSelection,
+            { backgroundColor: colors.primarySoft, borderBottomColor: colors.primaryBorder },
+          ],
           maxW ? { maxWidth: maxW, alignSelf: 'center', width: '100%' } : null,
         ]}
       >
@@ -581,49 +703,96 @@ export default function ThoughtChatScreen() {
         {isSelectionMode ? (
           <TouchableOpacity
             onPress={handleClearSelection}
-            style={styles.headerGhostBtn}
+            style={[styles.headerGhostBtn, isSmallPhone && styles.headerCompactBtn]}
             hitSlop={8}
             activeOpacity={0.7}
           >
-            <Ionicons name="close" size={24} color={Colors.text} />
+            <Ionicons name="close" size={isSmallPhone ? 21 : 24} color={Colors.text} />
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
             onPress={handleBack}
-            style={styles.headerBtn}
+            style={[styles.headerBtn, isSmallPhone && styles.headerCompactBtn]}
             hitSlop={8}
             activeOpacity={0.7}
           >
-            <Ionicons name="chevron-back" size={22} color={Colors.text} />
+            <Ionicons name="chevron-back" size={isSmallPhone ? 20 : 22} color={Colors.text} />
           </TouchableOpacity>
         )}
 
-        {/* Center: Clean Spacer / Selection count (NO "Today • Sat Nov" text) */}
+        {/* Center: Clean Spacer / Selection count */}
         <View style={styles.topCenter}>
           {isSelectionMode && (
-            <AppText variant="title" style={styles.selectionTitle}>
+            <AppText
+              variant="title"
+              numberOfLines={1}
+              style={[styles.selectionTitle, isSmallPhone && styles.selectionTitleSmall]}
+            >
               {selectedIds.length} selected
             </AppText>
           )}
         </View>
 
-        {/* Right Actions: Calendar (in normal mode) OR Pure Delete Icon (ONLY when selected) */}
-        <View style={styles.headerRightRow}>
+        {/* Right Actions: Calendar OR Selection Action Icons */}
+        <View style={[styles.headerRightRow, isSmallPhone && { gap: 2 }]}>
           {isSelectionMode ? (
-            <TouchableOpacity
-              onPress={handleDeletePress}
-              style={styles.headerDeleteBtn}
-              hitSlop={8}
-              activeOpacity={0.7}
-            >
-              <Feather name="trash-2" size={22} color="#D93838" />
-            </TouchableOpacity>
+            <>
+              {singleSelectedThought && (
+                <>
+                  <TouchableOpacity
+                    onPress={handleStarSelected}
+                    style={[styles.headerGhostBtn, isSmallPhone && styles.headerCompactBtn]}
+                    hitSlop={6}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name={singleSelectedThought.is_starred ? 'star' : 'star-outline'}
+                      size={isSmallPhone ? 18 : 20}
+                      color={singleSelectedThought.is_starred ? colors.primary : Colors.text}
+                    />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={handleReplySelected}
+                    style={[styles.headerGhostBtn, isSmallPhone && styles.headerCompactBtn]}
+                    hitSlop={6}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name="arrow-undo-outline"
+                      size={isSmallPhone ? 18 : 20}
+                      color={Colors.text}
+                    />
+                  </TouchableOpacity>
+
+                  {isSingleTextThought && (
+                    <TouchableOpacity
+                      onPress={handleEditSelected}
+                      style={[styles.headerGhostBtn, isSmallPhone && styles.headerCompactBtn]}
+                      hitSlop={6}
+                      activeOpacity={0.7}
+                    >
+                      <Feather name="edit-2" size={isSmallPhone ? 16 : 18} color={Colors.text} />
+                    </TouchableOpacity>
+                  )}
+                </>
+              )}
+
+              <TouchableOpacity
+                onPress={handleDeletePress}
+                style={[styles.headerDeleteBtn, isSmallPhone && styles.headerCompactBtn]}
+                hitSlop={8}
+                activeOpacity={0.7}
+              >
+                <Feather name="trash-2" size={isSmallPhone ? 18 : 21} color="#D93838" />
+              </TouchableOpacity>
+            </>
           ) : (
             <TouchableOpacity
-              style={styles.headerBtn}
+              style={[styles.headerBtn, isSmallPhone && styles.headerCompactBtn]}
               hitSlop={8}
               activeOpacity={0.7}
-              onPress={() => router.push('/(tabs)/thoughts' as any)}
+              onPress={() => setShowDatePicker(true)}
             >
               <Ionicons name="calendar-outline" size={19} color={Colors.textSecondary} />
             </TouchableOpacity>
@@ -646,6 +815,7 @@ export default function ThoughtChatScreen() {
             style={styles.scroll}
             contentContainerStyle={[
               styles.scrollContent,
+              { paddingBottom: streamBottomSpacer },
               maxW ? { maxWidth: maxW, alignSelf: 'center', width: '100%' } : null,
             ]}
             showsVerticalScrollIndicator={false}
@@ -656,8 +826,8 @@ export default function ThoughtChatScreen() {
               <RefreshControl
                 refreshing={refreshing}
                 onRefresh={onRefresh}
-                tintColor={Colors.primary}
-                colors={[Colors.primary]}
+                tintColor={colors.primary}
+                colors={[colors.primary]}
               />
             }
             onContentSizeChange={() => {
@@ -705,8 +875,10 @@ export default function ThoughtChatScreen() {
           </ScrollView>
         )}
 
-        {/* ── Attachment Popup Sheet (Single Direct Action Tray — No Duplicate Pickers) ── */}
-        {showAttachmentMenu && (
+        {/* ── Floating Bottom Stack (WhatsApp Style — Transparent BG) ── */}
+        <View pointerEvents="box-none" style={styles.floatingComposerOverlay}>
+          {/* ── Attachment Popup Sheet (Single Direct Action Tray — No Duplicate Pickers) ── */}
+          {showAttachmentMenu && (
           <View
             style={[
               styles.attachmentTray,
@@ -754,8 +926,8 @@ export default function ThoughtChatScreen() {
                 activeOpacity={0.8}
                 style={styles.attachmentItem}
               >
-                <View style={[styles.attachmentCircle, { backgroundColor: '#FDF3E0' }]}>
-                  <Ionicons name="mic" size={24} color={Colors.primary} />
+                <View style={[styles.attachmentCircle, { backgroundColor: colors.primaryLight }]}>
+                  <Ionicons name="mic" size={24} color={colors.primary} />
                 </View>
                 <AppText variant="caption" style={styles.attachmentLabel}>
                   Audio
@@ -787,9 +959,38 @@ export default function ThoughtChatScreen() {
             <MentionSuggestionsBox
               people={filteredMentionPeople}
               query={mentionTrigger.query}
+              searching={searchingMentions}
               onSelectPerson={handleSelectMentionPerson}
               onQuickAddPerson={handleOpenQuickAddPerson}
             />
+          </View>
+        )}
+
+        {/* ── #Tag Autocomplete Tray ── */}
+        {showTagPopup && tagTrigger && (
+          <View
+            style={maxW ? { maxWidth: maxW, alignSelf: 'center', width: '100%' } : undefined}
+          >
+            <TagSuggestionsBox
+              tags={tags}
+              query={tagTrigger.query}
+              onSelectTag={handleSelectTag}
+            />
+          </View>
+        )}
+
+        {/* ── Floating Emoji Burst Overlay on Emotion Send ── */}
+        {emojiBursts.length > 0 && (
+          <View
+            pointerEvents="none"
+            style={[
+              styles.burstOverlay,
+              { bottom: chatBottomPadding + (showMoodBar ? 108 : 62) },
+            ]}
+          >
+            {emojiBursts.map((b) => (
+              <FloatingEmojiBurst key={b.id} emoji={b.emoji} />
+            ))}
           </View>
         )}
 
@@ -797,47 +998,108 @@ export default function ThoughtChatScreen() {
         <View
           style={[
             styles.bottomBarWrapper,
+            isSmallPhone && { paddingHorizontal: Spacing[3] },
             { paddingBottom: chatBottomPadding },
             maxW ? { maxWidth: maxW, alignSelf: 'center', width: '100%' } : null,
           ]}
         >
+          {/* Expressive Emoji Emotion Bar (tap any emoji to send directly!) */}
+          {showMoodBar && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="always"
+              contentContainerStyle={styles.moodPickerContent}
+              style={styles.moodPickerStrip}
+            >
+              {EMOTION_LIST.map((m) => (
+                <TouchableOpacity
+                  key={m.key}
+                  onPress={() => handleSendEmotion(m)}
+                  activeOpacity={0.82}
+                  style={[
+                    styles.moodOptionChip,
+                    { backgroundColor: m.color, borderColor: m.color },
+                  ]}
+                >
+                  <AppText style={styles.moodEmojiIcon}>{m.emoji}</AppText>
+                  <AppText variant="caption" style={styles.moodOptionText}>
+                    {m.label}
+                  </AppText>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+
+          {/* Reply or Edit Context Banner */}
+          {(replyingTo || editingThought) && (
+            <View style={styles.contextBanner}>
+              <View style={[styles.contextAccent, { backgroundColor: colors.primary }]} />
+              <View style={styles.contextTextCol}>
+                <AppText variant="caption" style={[styles.contextTitle, { color: colors.primaryDark }]}>
+                  {editingThought ? 'Editing thought' : 'Replying to thought'}
+                </AppText>
+                <AppText variant="caption" color={Colors.textSecondary} numberOfLines={1}>
+                  {formatAttachmentPreview((editingThought || replyingTo)!.content)}
+                </AppText>
+              </View>
+              <TouchableOpacity
+                onPress={() => {
+                  if (editingThought) {
+                    setText('');
+                    setSelectedMood(null);
+                  }
+                  setEditingThought(null);
+                  setReplyingTo(null);
+                }}
+                hitSlop={8}
+              >
+                <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+          )}
+
           <View style={styles.chatRow}>
-            {/* Left Pill: Attachment Paperclip + Typewriter Toggle + Text Input */}
-            <View style={styles.inputPill}>
+            {/* Left Pill: Attachment Paperclip + Mood + Text Input */}
+            <View style={[styles.inputPill, isSmallPhone && { paddingLeft: 5, paddingRight: 6 }]}>
               <TouchableOpacity
                 onPress={() => setShowAttachmentMenu(!showAttachmentMenu)}
-                style={styles.attachBtn}
+                style={[styles.attachBtn, isSmallPhone && styles.compactComposerBtn]}
                 hitSlop={8}
                 activeOpacity={0.7}
               >
                 <Ionicons
                   name={showAttachmentMenu ? 'close-circle' : 'attach-outline'}
-                  size={23}
-                  color={showAttachmentMenu ? Colors.primary : Colors.textSecondary}
+                  size={isSmallPhone ? 21 : 23}
+                  color={showAttachmentMenu ? colors.primary : Colors.textSecondary}
                 />
               </TouchableOpacity>
 
-              {/* 3D Keyboard Mode Toggle */}
+              {/* Emoji Emotions Bar Toggle */}
               <TouchableOpacity
-                onPress={handleToggleTypewriter}
+                onPress={() => setShowMoodBar((v) => !v)}
                 style={[
                   styles.typewriterToggleBtn,
-                  showTypewriterKeyboard && styles.typewriterToggleBtnActive,
+                  isSmallPhone && styles.compactComposerBtn,
+                  showMoodBar && [
+                    styles.typewriterToggleBtnActive,
+                    { backgroundColor: colors.primaryLight },
+                  ],
                 ]}
                 hitSlop={6}
                 activeOpacity={0.75}
               >
                 <Ionicons
-                  name="keypad-outline"
-                  size={19}
-                  color={showTypewriterKeyboard ? Colors.primary : Colors.textSecondary}
+                  name={showMoodBar ? 'happy' : 'happy-outline'}
+                  size={isSmallPhone ? 18 : 20}
+                  color={showMoodBar ? colors.primary : Colors.textSecondary}
                 />
               </TouchableOpacity>
 
               {/* Text Input */}
               <TextInput
                 ref={inputRef}
-                placeholder="Type a thought or @mention..."
+                placeholder={isSmallPhone ? 'Type a thought...' : 'Type a thought, @mention, or #tag...'}
                 placeholderTextColor={Colors.textMuted}
                 value={text}
                 onChangeText={(val) => {
@@ -849,9 +1111,25 @@ export default function ThoughtChatScreen() {
                   } else if (val.length > text.length) {
                     playTypewriterSound('key');
                   }
+                  const delta = val.length - text.length;
+                  const estCursor = Math.max(0, Math.min(val.length, cursorIndex + delta));
                   setText(val);
-                  if (dismissedAtIndex !== null && val.length <= dismissedAtIndex) {
-                    setDismissedAtIndex(null);
+                  setCursorIndex(estCursor);
+                  if (dismissedAtIndex !== null) {
+                    const activeAfter = getActiveMentionTrigger(val, estCursor);
+                    if (
+                      estCursor <= dismissedAtIndex ||
+                      val.length <= dismissedAtIndex ||
+                      val[dismissedAtIndex] !== '@' ||
+                      (val.length < text.length &&
+                        activeAfter?.startIndex === dismissedAtIndex &&
+                        !activeAfter.query.includes(' '))
+                    ) {
+                      setDismissedAtIndex(null);
+                    }
+                  }
+                  if (dismissedHashIndex !== null && val.length <= dismissedHashIndex) {
+                    setDismissedHashIndex(null);
                   }
                 }}
                 onSelectionChange={(e) => {
@@ -860,16 +1138,16 @@ export default function ThoughtChatScreen() {
                   if (dismissedAtIndex !== null && pos <= dismissedAtIndex) {
                     setDismissedAtIndex(null);
                   }
-                }}
-                showSoftInputOnFocus={!showTypewriterKeyboard}
-                onFocus={() => {
-                  if (showTypewriterKeyboard) {
-                    setShowTypewriterKeyboard(false);
+                  if (dismissedHashIndex !== null && pos <= dismissedHashIndex) {
+                    setDismissedHashIndex(null);
                   }
                 }}
                 multiline
                 maxLength={1200}
-                style={[styles.textInput, isSmallPhone && { fontSize: FontSize.sm }]}
+                style={[
+                  styles.textInput,
+                  isSmallPhone && { fontSize: FontSize.sm, paddingHorizontal: Spacing[1] },
+                ]}
               />
             </View>
 
@@ -880,34 +1158,33 @@ export default function ThoughtChatScreen() {
                 <TouchableOpacity
                   onPress={handleSend}
                   activeOpacity={0.85}
-                  style={[styles.actionCircle, styles.actionSend]}
+                  style={[
+                    styles.actionCircle,
+                    isSmallPhone && styles.actionCircleSmall,
+                    styles.actionSend,
+                    { backgroundColor: colors.primary },
+                  ]}
                 >
-                  <Ionicons name="arrow-up" size={20} color={Colors.white} />
+                  <Ionicons name="arrow-up" size={isSmallPhone ? 18 : 20} color={Colors.white} />
                 </TouchableOpacity>
               ) : (
                 // Voice Mic Button — opens audio recorder
                 <TouchableOpacity
                   onPress={handleVoicePress}
                   activeOpacity={0.85}
-                  style={[styles.actionCircle, styles.actionMic]}
+                  style={[
+                    styles.actionCircle,
+                    isSmallPhone && styles.actionCircleSmall,
+                    styles.actionMic,
+                  ]}
                 >
-                  <Ionicons name="mic" size={20} color={Colors.white} />
+                  <Ionicons name="mic" size={isSmallPhone ? 18 : 20} color={Colors.white} />
                 </TouchableOpacity>
               )}
             </Animated.View>
           </View>
         </View>
-
-        {/* ── Vintage Typewriter Keyboard Chassis ─── */}
-        {showTypewriterKeyboard && (
-          <TypewriterKeyboard
-            onKeyPress={handleTypewriterKeyPress}
-            onBackspace={handleTypewriterBackspace}
-            onSend={handleTypewriterSend}
-            onSwitchToNative={handleSwitchToNativeKeyboard}
-            canSend={hasText}
-          />
-        )}
+        </View>
       </KeyboardAvoidingView>
 
       {/* ── WhatsApp-Style Media Preview Modal (Preview + Caption before sending) ── */}
@@ -940,7 +1217,101 @@ export default function ThoughtChatScreen() {
         onClose={() => setShowAudioRecorder(false)}
         onUpload={handleAudioUploaded}
       />
+
+      {/* ── Theme Date Picker to Jump Between Day Chats ── */}
+      <DatePickerModal
+        visible={showDatePicker}
+        selectedDate={dayDate}
+        activeDates={new Set(days.map((d) => d.day_date))}
+        title="Jump to Date"
+        subtitle="Open thoughts recorded on any day"
+        allowClear={false}
+        onSelectDate={(pickedDate) => {
+          if (pickedDate !== dayDate) {
+            router.replace(`/thoughts/${pickedDate}` as any);
+          }
+        }}
+        onClose={() => setShowDatePicker(false)}
+      />
     </SafeAreaView>
+  );
+}
+
+// ── Floating Emoji Burst Particles on Direct Emotion Send ────────────────────
+function FloatingEmojiBurst({ emoji }: { emoji: string }) {
+  const p1 = useRef(new Animated.Value(0)).current;
+  const p2 = useRef(new Animated.Value(0)).current;
+  const p3 = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const smoothEase = Easing.out(Easing.cubic);
+    Animated.stagger(110, [
+      Animated.timing(p1, {
+        toValue: 1,
+        duration: 1350,
+        easing: smoothEase,
+        useNativeDriver: true,
+      }),
+      Animated.timing(p2, {
+        toValue: 1,
+        duration: 1450,
+        easing: smoothEase,
+        useNativeDriver: true,
+      }),
+      Animated.timing(p3, {
+        toValue: 1,
+        duration: 1350,
+        easing: smoothEase,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [p1, p2, p3]);
+
+  const specs = [
+    { anim: p1, dx: -30, dy: -115, scalePeak: 1.15 },
+    { anim: p2, dx: 0, dy: -155, scalePeak: 1.4 },
+    { anim: p3, dx: 30, dy: -108, scalePeak: 1.15 },
+  ];
+
+  return (
+    <View style={styles.burstCluster} pointerEvents="none">
+      {specs.map((spec, idx) => (
+        <Animated.Text
+          key={idx}
+          style={[
+            styles.burstEmoji,
+            {
+              opacity: spec.anim.interpolate({
+                inputRange: [0, 0.2, 0.72, 1],
+                outputRange: [0, 1, 0.85, 0],
+              }),
+              transform: [
+                {
+                  translateX: spec.anim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, spec.dx],
+                  }),
+                },
+                {
+                  translateY: spec.anim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [12, spec.dy],
+                  }),
+                },
+                {
+                  scale: spec.anim.interpolate({
+                    inputRange: [0, 0.35, 0.75, 1],
+                    outputRange: [0.5, spec.scalePeak, 1.05, 0.8],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          {emoji}
+        </Animated.Text>
+      ))}
+    </View>
   );
 }
 
@@ -957,7 +1328,7 @@ function AnimatedThoughtCard({
   onToggleSelect,
   onPressMention,
 }: {
-  thought: Thought;
+  thought: StreamThought;
   people: Person[];
   isSelected: boolean;
   isSelectionMode: boolean;
@@ -968,38 +1339,56 @@ function AnimatedThoughtCard({
   onToggleSelect: () => void;
   onPressMention: (person: Person) => void;
 }) {
+  const colors = useThemeColors();
   const [expanded, setExpanded] = useState(false);
   const attachmentPayload = parseAttachmentThought(thought.content);
+  const emotionPayload = parseEmotionThought(thought.content);
+  const emotionDef = emotionPayload ? EMOTION_MAP[emotionPayload.mood] : undefined;
   const isAttachment = Boolean(attachmentPayload);
-  const isLong = !isAttachment && thought.content.length > 150;
+  const isEmotion = Boolean(emotionPayload);
+  const isLong = !isAttachment && !isEmotion && thought.content.length > 150;
 
   // Animation values
   const animOpacity = useRef(new Animated.Value(0)).current;
   const animTranslateY = useRef(new Animated.Value(28)).current;
   const animTranslateX = useRef(new Animated.Value(0)).current;
   const animScale = useRef(new Animated.Value(0.72)).current;
+  const emojiBounce = useRef(new Animated.Value(0)).current;
 
-  // 5. Appearing Spring Animation on chat send/mount
+  // 5. Smooth Appearing Animation on chat send/mount
   useEffect(() => {
     Animated.parallel([
       Animated.timing(animOpacity, {
         toValue: 1,
-        duration: 260,
+        duration: 420,
+        easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.spring(animScale, {
         toValue: 1,
-        friction: 5,
-        tension: 75,
+        friction: 8,
+        tension: 48,
         useNativeDriver: true,
       }),
       Animated.spring(animTranslateY, {
         toValue: 0,
-        friction: 6,
-        tension: 65,
+        friction: 8,
+        tension: 45,
         useNativeDriver: true,
       }),
     ]).start();
+
+    if (isEmotion) {
+      Animated.sequence([
+        Animated.delay(140),
+        Animated.spring(emojiBounce, {
+          toValue: 1,
+          friction: 6,
+          tension: 42,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
   }, []);
 
   // 5. Thanos Disappearing Wipe Animation when isDeleting
@@ -1059,20 +1448,118 @@ function AnimatedThoughtCard({
         onPress={handlePress}
         style={[
           styles.thoughtCard,
+          isEmotion && [
+            styles.thoughtCardEmotion,
+            {
+              backgroundColor: emotionDef?.color || colors.primary,
+            },
+          ],
           isAttachment && styles.thoughtCardAttachment,
-          isSelected && (isAttachment ? styles.thoughtCardAttachmentSelected : styles.thoughtCardSelected),
+          isSelected &&
+            (isAttachment
+              ? styles.thoughtCardAttachmentSelected
+              : isEmotion
+              ? styles.thoughtCardEmotionSelected
+              : [
+                  styles.thoughtCardSelected,
+                  { backgroundColor: colors.primary, shadowColor: colors.primary },
+                ]),
         ]}
       >
         {/* Large Checkmark Indicator Badge */}
         {isSelected && (
           <View style={styles.selectedBadge}>
             <View style={styles.selectedBadgeInner}>
-              <Ionicons name="checkmark-circle" size={24} color={Colors.primary} />
+              <Ionicons name="checkmark-circle" size={24} color={colors.primary} />
             </View>
           </View>
         )}
 
-        {isAttachment && attachmentPayload ? (
+        {isEmotion && emotionPayload ? (
+          /* ── Full-Width Solid Colored Animated Emoji Card ── */
+          <>
+            {Boolean(thought.reply_to_preview) && (
+              <View style={[styles.quoteBox, styles.quoteBoxEmotion]}>
+                <View style={[styles.quoteBar, { backgroundColor: Colors.white }]} />
+                <AppText
+                  variant="caption"
+                  numberOfLines={2}
+                  color="rgba(255,255,255,0.92)"
+                  style={{ flex: 1 }}
+                >
+                  {formatAttachmentPreview(thought.reply_to_preview || '')}
+                </AppText>
+              </View>
+            )}
+
+            <View style={styles.emotionBubbleRow}>
+              <Animated.Text
+                style={[
+                  styles.emotionBubbleEmoji,
+                  {
+                    transform: [
+                      {
+                        scale: emojiBounce.interpolate({
+                          inputRange: [0, 0.55, 1],
+                          outputRange: [0.68, 1.18, 1],
+                        }),
+                      },
+                      {
+                        rotate: emojiBounce.interpolate({
+                          inputRange: [0, 0.35, 0.7, 1],
+                          outputRange: ['-7deg', '7deg', '-3deg', '0deg'],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              >
+                {emotionPayload.emoji}
+              </Animated.Text>
+
+              <View style={styles.emotionBubbleMeta}>
+                <AppText variant="bodyMd" style={styles.emotionBubbleTitle}>
+                  Feeling {emotionPayload.label}
+                </AppText>
+              </View>
+            </View>
+
+            <View style={styles.thoughtFooter}>
+              {thought.is_starred && (
+                <Ionicons
+                  name="star"
+                  size={12}
+                  color={Colors.white}
+                  style={{ marginRight: 5 }}
+                />
+              )}
+
+              <AppText
+                variant="caption"
+                color="rgba(255, 255, 255, 0.9)"
+                style={[styles.timeText, styles.timeTextSelected]}
+              >
+                {formatTime(thought.created_at)}
+              </AppText>
+
+              {thought.pendingOffline ? (
+                <Ionicons
+                  name="cloud-offline-outline"
+                  size={12}
+                  color="rgba(255, 255, 255, 0.88)"
+                  style={{ marginLeft: 4 }}
+                />
+              ) : thought.id?.startsWith('temp_') ? (
+                <Ionicons
+                  name="time-outline"
+                  size={12}
+                  color="rgba(255, 255, 255, 0.82)"
+                  style={{ marginLeft: 3 }}
+                />
+              ) : null}
+            </View>
+          </>
+        ) : isAttachment && attachmentPayload ? (
           /* ── Attachment: Image / Video / Audio (with frosted glass progress & retry) ── */
           <>
             <AttachmentCard
@@ -1111,6 +1598,27 @@ function AnimatedThoughtCard({
         ) : (
           /* ── Standard Text Thought ── */
           <>
+            {/* Quote-Reply Box if replying to an earlier thought */}
+            {Boolean(thought.reply_to_preview) && (
+              <View style={[styles.quoteBox, isSelected && styles.quoteBoxSelected]}>
+                <View
+                  style={[
+                    styles.quoteBar,
+                    { backgroundColor: colors.primary },
+                    isSelected && { backgroundColor: Colors.white },
+                  ]}
+                />
+                <AppText
+                  variant="caption"
+                  numberOfLines={2}
+                  color={isSelected ? 'rgba(255,255,255,0.9)' : Colors.textSecondary}
+                  style={{ flex: 1 }}
+                >
+                  {formatAttachmentPreview(thought.reply_to_preview || '')}
+                </AppText>
+              </View>
+            )}
+
             {/* Content Body (Pure white when solid filled selected) */}
             <MentionText
               text={thought.content}
@@ -1120,7 +1628,13 @@ function AnimatedThoughtCard({
               numberOfLines={expanded ? undefined : 6}
               style={[styles.thoughtBodyText, isSelected && styles.thoughtBodyTextSelected]}
               mentionStyle={isSelected ? styles.mentionTextSelected : undefined}
+              tagStyle={isSelected ? styles.mentionTextSelected : undefined}
               onPressMention={isSelectionMode ? undefined : onPressMention}
+              onPressTag={
+                isSelectionMode
+                  ? undefined
+                  : (tag) => router.push({ pathname: '/(tabs)/thoughts' as any, params: { tag } })
+              }
             />
 
             {/* Read More / Read Less Toggle */}
@@ -1132,7 +1646,7 @@ function AnimatedThoughtCard({
               >
                 <AppText
                   variant="caption"
-                  color={isSelected ? Colors.white : Colors.primaryDark}
+                  color={isSelected ? Colors.white : colors.primaryDark}
                   style={{ fontFamily: FontFamily.bold }}
                 >
                   {expanded ? 'Show less' : 'Read more'}
@@ -1140,13 +1654,37 @@ function AnimatedThoughtCard({
                 <Ionicons
                   name={expanded ? 'chevron-up' : 'chevron-down'}
                   size={13}
-                  color={isSelected ? Colors.white : Colors.primaryDark}
+                  color={isSelected ? Colors.white : colors.primaryDark}
                 />
               </TouchableOpacity>
             )}
 
-            {/* Footer row: Clean Time */}
+            {/* Footer row: Mood, Star, Offline indicator, Time */}
             <View style={styles.thoughtFooter}>
+              {thought.mood && EMOTION_MAP[thought.mood] && (
+                <View
+                  style={[
+                    styles.moodMiniBadge,
+                    { backgroundColor: EMOTION_MAP[thought.mood].color },
+                    isSelected && { backgroundColor: 'rgba(0,0,0,0.22)' },
+                  ]}
+                >
+                  <AppText style={{ fontSize: 11 }}>{EMOTION_MAP[thought.mood].emoji}</AppText>
+                  <AppText variant="caption" style={styles.moodMiniText}>
+                    {EMOTION_MAP[thought.mood].label}
+                  </AppText>
+                </View>
+              )}
+
+              {thought.is_starred && (
+                <Ionicons
+                  name="star"
+                  size={12}
+                  color={isSelected ? Colors.white : colors.primary}
+                  style={{ marginRight: 5 }}
+                />
+              )}
+
               <AppText
                 variant="caption"
                 color={isSelected ? 'rgba(255, 255, 255, 0.9)' : Colors.textMuted}
@@ -1154,14 +1692,22 @@ function AnimatedThoughtCard({
               >
                 {formatTime(thought.created_at)}
               </AppText>
-              {thought.id?.startsWith('temp_') && (
+
+              {thought.pendingOffline ? (
+                <Ionicons
+                  name="cloud-offline-outline"
+                  size={12}
+                  color={isSelected ? 'rgba(255, 255, 255, 0.85)' : Colors.warning}
+                  style={{ marginLeft: 4 }}
+                />
+              ) : thought.id?.startsWith('temp_') ? (
                 <Ionicons
                   name="time-outline"
                   size={12}
                   color={isSelected ? 'rgba(255, 255, 255, 0.8)' : Colors.textMuted}
                   style={{ marginLeft: 3 }}
                 />
-              )}
+              ) : null}
             </View>
           </>
         )}
@@ -1226,13 +1772,14 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   topBarSelection: {
-    backgroundColor: '#FFFDF9',
-    borderBottomColor: '#EADECE',
+    backgroundColor: Colors.primarySoft,
+    borderBottomColor: Colors.primaryBorder,
   },
   topCenter: {
     alignItems: 'center',
     justifyContent: 'center',
     flex: 1,
+    minWidth: 0,
     paddingHorizontal: Spacing[2],
   },
   selectionTitle: {
@@ -1241,9 +1788,13 @@ const styles = StyleSheet.create({
     color: Colors.text,
     letterSpacing: -0.3,
   },
+  selectionTitleSmall: {
+    fontSize: FontSize.md,
+  },
   headerRightRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexShrink: 0,
     gap: Spacing[1],
   },
   headerBtn: {
@@ -1256,6 +1807,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#ECEAE4',
     ...Shadow.xs,
+  },
+  headerCompactBtn: {
+    width: 32,
+    height: 32,
   },
   headerGhostBtn: {
     width: 38,
@@ -1407,7 +1962,6 @@ const styles = StyleSheet.create({
   },
   mentionTextSelected: {
     color: '#FFFFFF',
-    backgroundColor: 'rgba(0, 0, 0, 0.18)',
     textDecorationLine: 'underline',
   },
   timeTextSelected: {
@@ -1473,14 +2027,20 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
   },
 
-  // ── Bottom Thought Bar (WhatsApp Layout) ──────────
+  // ── Floating Bottom Thought Bar (WhatsApp Layout) ─
+  floatingComposerOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 20,
+    backgroundColor: 'transparent',
+  },
   bottomBarWrapper: {
     paddingHorizontal: Spacing[4],
     paddingBottom: Spacing[3],
-    paddingTop: Spacing[2],
-    backgroundColor: Colors.background,
-    borderTopWidth: 1,
-    borderTopColor: '#EFECE6',
+    paddingTop: Spacing[1],
+    backgroundColor: 'transparent',
     gap: Spacing[2],
   },
   uploadingToast: {
@@ -1518,7 +2078,7 @@ const styles = StyleSheet.create({
     paddingRight: Spacing[2],
     paddingVertical: Platform.OS === 'ios' ? 4 : 3,
     minHeight: 44,
-    ...Shadow.xs,
+    ...Shadow.sm,
   },
   attachBtn: {
     width: 32,
@@ -1540,8 +2100,14 @@ const styles = StyleSheet.create({
   typewriterToggleBtnActive: {
     backgroundColor: Colors.primaryLight, // Theme soft amber chip
   },
+  compactComposerBtn: {
+    width: 28,
+    height: 28,
+    marginRight: 0,
+  },
   textInput: {
     flex: 1,
+    minWidth: 0,
     fontFamily: FontFamily.regular,
     fontSize: FontSize.md,
     color: Colors.text,
@@ -1562,10 +2128,154 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     ...Shadow.sm,
   },
+  actionCircleSmall: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
   actionMic: {
     backgroundColor: '#353330',
   },
   actionSend: {
     backgroundColor: Colors.primary,
+  },
+  moodPickerStrip: {
+    flexGrow: 0,
+  },
+  moodPickerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[2],
+    paddingVertical: 2,
+    paddingRight: Spacing[2],
+  },
+  moodOptionChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: Radius.full,
+    borderWidth: 0,
+    ...Shadow.xs,
+  },
+  moodEmojiIcon: {
+    fontSize: 16,
+    lineHeight: 20,
+  },
+  moodOptionText: {
+    fontSize: 12,
+    fontFamily: FontFamily.bold,
+    color: Colors.white,
+  },
+  burstOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 25,
+  },
+  burstCluster: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  burstEmoji: {
+    fontSize: 30,
+    lineHeight: 34,
+  },
+  thoughtCardEmotion: {
+    width: '100%',
+    borderWidth: 0,
+    borderRadius: Radius['2xl'],
+    paddingVertical: Spacing[3],
+    paddingHorizontal: Spacing[4],
+  },
+  thoughtCardEmotionSelected: {
+    borderWidth: 2.5,
+    borderColor: '#241B14',
+  },
+  quoteBoxEmotion: {
+    backgroundColor: 'rgba(0, 0, 0, 0.16)',
+  },
+  emotionBubbleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[3],
+  },
+  emotionBubbleEmoji: {
+    fontSize: 38,
+    lineHeight: 46,
+  },
+  emotionBubbleMeta: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
+  },
+  emotionBubbleTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: FontSize.lg,
+    color: Colors.white,
+  },
+  contextBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[2],
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.lg,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[2],
+    borderWidth: 1,
+    borderColor: '#ECEAE4',
+  },
+  contextAccent: {
+    width: 3,
+    height: 26,
+    borderRadius: 2,
+    backgroundColor: Colors.primary,
+  },
+  contextTextCol: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  contextTitle: {
+    fontFamily: FontFamily.bold,
+    color: Colors.primaryDark,
+    fontSize: 11,
+  },
+  quoteBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[2],
+    backgroundColor: '#F7F4EE',
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: 6,
+  },
+  quoteBoxSelected: {
+    backgroundColor: 'rgba(0,0,0,0.14)',
+  },
+  quoteBar: {
+    width: 3,
+    alignSelf: 'stretch',
+    borderRadius: 2,
+    backgroundColor: Colors.primary,
+  },
+  moodMiniBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: Radius.full,
+    marginRight: 'auto' as any,
+  },
+  moodMiniText: {
+    fontSize: 10,
+    fontFamily: FontFamily.bold,
+    color: Colors.white,
+    textTransform: 'capitalize',
   },
 });

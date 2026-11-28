@@ -1,6 +1,7 @@
 import React from 'react';
 import { TouchableOpacity, StyleSheet, ViewStyle, View } from 'react-native';
 import { Colors, FontFamily, Radius, Spacing } from '@/theme';
+import { useThemeColors } from '@/hooks/use-mood-theme';
 import { AppText } from './AppText';
 
 interface ChipProps {
@@ -12,6 +13,7 @@ interface ChipProps {
 }
 
 export function Chip({ label, selected = false, onPress, style, icon }: ChipProps) {
+  const colors = useThemeColors();
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -19,8 +21,8 @@ export function Chip({ label, selected = false, onPress, style, icon }: ChipProp
       style={[
         styles.base,
         {
-          backgroundColor: selected ? Colors.primary : Colors.surface,
-          borderColor: selected ? Colors.primary : Colors.border,
+          backgroundColor: selected ? colors.primary : Colors.surface,
+          borderColor: selected ? colors.primary : Colors.border,
         },
         style,
       ]}
@@ -28,7 +30,7 @@ export function Chip({ label, selected = false, onPress, style, icon }: ChipProp
       {icon && <View>{icon}</View>}
       <AppText
         variant="label"
-        color={selected ? Colors.textOnPrimary : Colors.textSecondary}
+        color={selected ? colors.textOnPrimary : Colors.textSecondary}
         style={{ fontFamily: selected ? FontFamily.semiBold : FontFamily.regular }}
       >
         {label}

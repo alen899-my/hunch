@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
-import { getGlobalToken } from './api';
+import { getGlobalToken, notifyUnauthorizedIfNeeded } from './api';
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://hunch-api-eight.vercel.app/api';
 
@@ -78,15 +78,19 @@ export async function uploadToR2(
   }
 
   try {
-    // 2. Ask server for a presigned PUT URL
+    // 2. Ask server for a presigned PUT URL (strictly requires auth token)
+    if (!token) {
+      throw new Error('Authentication required for upload');
+    }
     const presignRes = await fetch(`${BASE_URL}/upload/presign`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ mimeType, fileSize: fileSize || 1024 }),
     });
+    notifyUnauthorizedIfNeeded(presignRes.status, token);
 
     const presignJson = await presignRes.json();
 
@@ -190,6 +194,7 @@ export async function uploadViaServer(
       },
       body: formData,
     });
+    notifyUnauthorizedIfNeeded(res.status, token);
 
     const json = await res.json();
     if (!json.success || !json.data?.publicUrl) {
@@ -224,9 +229,12 @@ export async function uploadViaServer(
     );
 
     const res = await uploadTask.uploadAsync();
+    if (res) {
+      notifyUnauthorizedIfNeeded(res.status, token);
+    }
 
     if (!res || res.status >= 400) {
-      throw new Error(`Upload failed with status ${res?.status}: ${res?.body}`);
+      throw new Error(`Upload failed with status ${res?.status}`);
     }
 
     const json = JSON.parse(res.body);
@@ -241,12 +249,14 @@ export async function uploadViaServer(
 // ── Delete a file ─────────────────────────────────────────────────────────────
 export async function deleteUpload(key: string): Promise<void> {
   const token = getGlobalToken();
-  await fetch(`${BASE_URL}/upload`, {
+  if (!token) return;
+  const res = await fetch(`${BASE_URL}/upload`, {
     method: 'DELETE',
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ key }),
   });
+  notifyUnauthorizedIfNeeded(res.status, token);
 }

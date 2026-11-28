@@ -1,35 +1,44 @@
 const { verifyToken } = require('../utils/jwt');
 const { unauthorized } = require('../utils/response');
+const authRepo = require('../features/auth/auth.repository');
 
-const GUEST_USER_ID = '00000000-0000-0000-0000-000000000000';
-
-// Attach decoded user to req.user — if no token provided, fallback to guest user so saving always succeeds!
-const optionalOrGuestProtect = (req, res, next) => {
+// Strict JWT protection backed by active database user & token_version check
+const protect = async (req, res, next) => {
   const header = req.headers.authorization;
-  if (header?.startsWith('Bearer ')) {
-    try {
-      req.user = verifyToken(header.split(' ')[1]);
-      return next();
-    } catch {
-      // Invalid/expired token falls back to guest user
-    }
+  if (!header || !header.startsWith('Bearer ')) {
+    return unauthorized(res, 'Authentication required');
   }
 
-  req.user = { id: GUEST_USER_ID, email: 'guest@hunch.local' };
-  next();
-};
-
-// Strict protect for user-specific operations like profile /me
-const protect = (req, res, next) => {
-  const header = req.headers.authorization;
-  if (!header?.startsWith('Bearer ')) return unauthorized(res, 'No token provided');
+  const rawToken = header.slice(7).trim();
+  if (!rawToken || rawToken.length > 2048) {
+    return unauthorized(res, 'Invalid authentication token');
+  }
 
   try {
-    req.user = verifyToken(header.split(' ')[1]);
-    next();
+    const decoded = verifyToken(rawToken);
+    if (!decoded?.id) {
+      return unauthorized(res, 'Invalid or expired token');
+    }
+
+    const user = await authRepo.findAuthStateById(decoded.id);
+    if (!user) {
+      return unauthorized(res, 'Account no longer exists');
+    }
+
+    // Revoke older tokens immediately after password changes
+    if (typeof decoded.tv === 'number' && decoded.tv !== (user.token_version ?? 0)) {
+      return unauthorized(res, 'Session invalidated, please sign in again');
+    }
+
+    req.user = {
+      id: user.id,
+      email: user.email,
+      tokenVersion: user.token_version ?? 0,
+    };
+    return next();
   } catch {
-    unauthorized(res, 'Invalid or expired token');
+    return unauthorized(res, 'Invalid or expired token');
   }
 };
 
-module.exports = { protect, optionalOrGuestProtect, GUEST_USER_ID };
+module.exports = { protect };

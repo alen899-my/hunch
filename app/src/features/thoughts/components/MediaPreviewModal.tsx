@@ -17,12 +17,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { AppText } from '@/components/ui';
 import { Colors, Spacing, Radius, FontFamily, FontSize, Shadow } from '@/theme';
+import { useThemeColors } from '@/hooks/use-mood-theme';
 import { getSafeBottomPadding } from '@/utils/safe-area';
 import type { Person } from '@/services/people.service';
+import { useMentionPeopleSearch, upsertKnownPeopleInStore } from '@/hooks/use-people';
 import { MentionSuggestionsBox } from '@/features/people/components/MentionSuggestionsBox';
 import {
   getActiveMentionTrigger,
-  filterPeopleForMention,
   insertMentionAtTrigger,
 } from '@/features/people/utils/mentions';
 
@@ -69,27 +70,36 @@ export function MediaPreviewModal({
   onClose,
   onSend,
 }: MediaPreviewModalProps) {
+  const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const [caption, setCaption] = useState('');
   const [cursorIndex, setCursorIndex] = useState(0);
   const [dismissedAtIndex, setDismissedAtIndex] = useState<number | null>(null);
   const [selectedMentionIds, setSelectedMentionIds] = useState<string[]>([]);
 
-  if (!visible || !media) return null;
-
-  const mentionTrigger = getActiveMentionTrigger(caption, cursorIndex);
-  const filteredPeople = mentionTrigger
-    ? filterPeopleForMention(people, mentionTrigger.query)
-    : [];
-  const showMentionPopup = Boolean(
-    people.length > 0 &&
+  const mentionTrigger =
+    visible && media ? getActiveMentionTrigger(caption, cursorIndex) : null;
+  const mentionQuery = mentionTrigger?.query.trim() ?? '';
+  const isMentionTriggerActive = Boolean(
+    visible &&
+      media &&
       mentionTrigger &&
       mentionTrigger.startIndex !== dismissedAtIndex &&
-      (filteredPeople.length > 0 || !mentionTrigger.query.includes(' '))
+      mentionQuery.length > 0
   );
+  const { results: filteredPeople, searching: searchingMentions } =
+    useMentionPeopleSearch(mentionTrigger?.query ?? '', isMentionTriggerActive, people);
+  const showMentionPopup = Boolean(
+    isMentionTriggerActive &&
+      mentionTrigger &&
+      (searchingMentions || filteredPeople.length > 0 || !mentionTrigger.query.includes(' '))
+  );
+
+  if (!visible || !media) return null;
 
   const handleSelectMention = (person: Person) => {
     if (!mentionTrigger) return;
+    upsertKnownPeopleInStore([person]);
     const { nextText, nextCursorIndex } = insertMentionAtTrigger(caption, mentionTrigger, person);
     setCaption(nextText);
     setCursorIndex(nextCursorIndex);
@@ -148,11 +158,11 @@ export function MediaPreviewModal({
 
           {/* Header Row (Identical to Audio Preview Header) */}
           <View style={styles.headerRow}>
-            <View>
-              <AppText style={styles.sheetTitle}>
+            <View style={styles.headerTextWrap}>
+              <AppText style={styles.sheetTitle} numberOfLines={1}>
                 {isVideo ? 'Preview Video' : 'Preview Photo'}
               </AppText>
-              <AppText variant="caption" color={Colors.textSecondary}>
+              <AppText variant="caption" color={Colors.textSecondary} numberOfLines={1}>
                 {isVideo ? 'Review video before sending' : 'Review photo before sending'}
               </AppText>
             </View>
@@ -188,6 +198,7 @@ export function MediaPreviewModal({
                 <MentionSuggestionsBox
                   people={filteredPeople}
                   query={mentionTrigger.query}
+                  searching={searchingMentions}
                   onSelectPerson={handleSelectMention}
                 />
               </View>
@@ -204,9 +215,22 @@ export function MediaPreviewModal({
               <TextInput
                 value={caption}
                 onChangeText={(val) => {
+                  const delta = val.length - caption.length;
+                  const estCursor = Math.max(0, Math.min(val.length, cursorIndex + delta));
                   setCaption(val);
-                  if (dismissedAtIndex !== null && val.length <= dismissedAtIndex) {
-                    setDismissedAtIndex(null);
+                  setCursorIndex(estCursor);
+                  if (dismissedAtIndex !== null) {
+                    const activeAfter = getActiveMentionTrigger(val, estCursor);
+                    if (
+                      estCursor <= dismissedAtIndex ||
+                      val.length <= dismissedAtIndex ||
+                      val[dismissedAtIndex] !== '@' ||
+                      (val.length < caption.length &&
+                        activeAfter?.startIndex === dismissedAtIndex &&
+                        !activeAfter.query.includes(' '))
+                    ) {
+                      setDismissedAtIndex(null);
+                    }
                   }
                 }}
                 onSelectionChange={(e) => {
@@ -232,7 +256,7 @@ export function MediaPreviewModal({
 
               <TouchableOpacity
                 onPress={handleSend}
-                style={styles.sendConfirmBtn}
+                style={[styles.sendConfirmBtn, { backgroundColor: colors.primary }]}
                 activeOpacity={0.88}
               >
                 <Ionicons name="arrow-up" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
@@ -263,6 +287,9 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.OS === 'ios' ? 34 : Spacing[5],
     paddingHorizontal: Spacing[5],
     maxHeight: '92%',
+    maxWidth: 540,
+    width: '100%',
+    alignSelf: 'center',
     gap: Spacing[3],
     ...Shadow.md,
   },
@@ -282,6 +309,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: Spacing[2],
+  },
+  headerTextWrap: {
+    flex: 1,
+    minWidth: 0,
   },
   sheetTitle: {
     fontFamily: FontFamily.editorial,
@@ -292,6 +324,7 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
+    flexShrink: 0,
     backgroundColor: Colors.surfaceAlt,
     alignItems: 'center',
     justifyContent: 'center',

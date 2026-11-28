@@ -1,11 +1,15 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as peopleService from '@/services/people.service';
 import type { Person, PersonMentionThought } from '@/services/people.service';
 import { uploadToR2 } from '@/services/upload.service';
 import type { Thought } from '@/services/thoughts.service';
-import { buildDefaultHandle, parseMentionSegments } from '@/features/people/utils/mentions';
+import {
+  buildDefaultHandle,
+  filterPeopleForMention,
+  parseMentionSegments,
+} from '@/features/people/utils/mentions';
 import { useAuth } from './use-auth';
 
 export interface LocalAvatarPayload {
@@ -18,6 +22,9 @@ export interface SavePersonInput {
   handle?: string;
   avatarUrl?: string | null;
   avatarKey?: string | null;
+  relationship?: string | null;
+  notes?: string | null;
+  birthday?: string | null;
   localAvatar?: LocalAvatarPayload | null;
   avatarRemoved?: boolean;
 }
@@ -93,6 +100,7 @@ const _detailListeners = new Map<string, Set<() => void>>();
 // Maps temp_person_* IDs to in-flight creation promises and resolved server IDs
 const _pendingCreates = new Map<string, Promise<Person>>();
 const _resolvedTempIds = new Map<string, string>();
+const _mentionSearchCache = new Map<string, Person[]>();
 
 const getTokenBucket = (tokenKey: string | null) => tokenKey || 'guest';
 
@@ -219,6 +227,7 @@ function resetStoresForToken(tokenKey: string | null) {
   _peopleState.mutationVersion += 1;
   _peopleState.pendingMutations = 0;
   _detailStates.clear();
+  _mentionSearchCache.clear();
   notifyPeople();
   notifyAllDetails();
 }
@@ -426,9 +435,59 @@ export async function waitForPendingPeopleCreations(ids: string[] = []): Promise
 
 export function invalidatePeopleCache() {
   _peopleState.lastFetchAt = 0;
+  _mentionSearchCache.clear();
   _detailStates.forEach((d) => {
     d.lastFetchAt = 0;
   });
+}
+
+export function upsertKnownPeopleInStore(
+  incoming: Person[],
+  explicitTokenKey?: string | null
+) {
+  if (!Array.isArray(incoming) || incoming.length === 0) return;
+  const targetToken =
+    explicitTokenKey !== undefined ? explicitTokenKey : _peopleState.tokenKey;
+  if (targetToken === '__uninitialized__') return;
+  if (_peopleState.tokenKey !== targetToken) {
+    resetStoresForToken(targetToken);
+  }
+
+  const map = new Map(_peopleState.people.map((p) => [p.id, p]));
+  let changed = false;
+
+  for (const item of incoming) {
+    if (!item?.id) continue;
+    const resolvedId = _resolvedTempIds.get(item.id) || item.id;
+    const existing = map.get(resolvedId) || map.get(item.id);
+    if (existing) {
+      const merged: Person = {
+        ...existing,
+        ...item,
+        id: existing.id,
+        mention_count: Math.max(existing.mention_count || 0, item.mention_count || 0),
+        last_mentioned_at: item.last_mentioned_at || existing.last_mentioned_at || null,
+      };
+      if (
+        merged.name !== existing.name ||
+        merged.handle !== existing.handle ||
+        merged.avatar_url !== existing.avatar_url ||
+        merged.mention_count !== existing.mention_count
+      ) {
+        map.set(existing.id, merged);
+        changed = true;
+      }
+    } else {
+      map.set(item.id, item);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    _peopleState.people = [...map.values()];
+    _peopleState.loading = false;
+    notifyPeople();
+  }
 }
 
 async function fetchPeopleInternal(token: string | null, isSilent = false) {
@@ -478,7 +537,8 @@ async function fetchPeopleInternal(token: string | null, isSilent = false) {
   }
 }
 
-export function usePeople() {
+export function usePeople(options?: { autoFetch?: boolean }) {
+  const autoFetch = options?.autoFetch ?? true;
   const { token } = useAuth();
   const tokenKey = token ?? null;
   const [snapshot, setSnapshot] = useState<PeopleSnapshot>(() => getPeopleSnapshot(tokenKey));
@@ -493,8 +553,15 @@ export function usePeople() {
   }, [tokenKey]);
 
   useEffect(() => {
-    fetchPeopleInternal(token ?? null, _peopleState.people.length > 0 && _peopleState.tokenKey === tokenKey);
-  }, [token, tokenKey]);
+    if (autoFetch) {
+      fetchPeopleInternal(
+        token ?? null,
+        _peopleState.people.length > 0 && _peopleState.tokenKey === tokenKey
+      );
+    } else {
+      hydratePeopleFromStorage(tokenKey);
+    }
+  }, [autoFetch, token, tokenKey]);
 
   const fetchPeople = useCallback(
     async (isSilent = false) => {
@@ -535,6 +602,9 @@ export function usePeople() {
         handle: optimisticHandle,
         avatar_url: input.localAvatar?.uri || input.avatarUrl || null,
         avatar_key: input.avatarKey || null,
+        relationship: input.relationship?.trim() || null,
+        notes: input.notes?.trim() || null,
+        birthday: input.birthday?.trim() || null,
         mention_count: 0,
         last_mentioned_at: null,
         created_at: nowIso,
@@ -542,6 +612,7 @@ export function usePeople() {
       };
 
       // Instant 0ms update to global reactive store
+      _mentionSearchCache.clear();
       _peopleState.mutationVersion += 1;
       _peopleState.pendingMutations += 1;
       _peopleState.people = [optimisticPerson, ..._peopleState.people];
@@ -566,6 +637,9 @@ export function usePeople() {
               handle: input.handle ? optimisticHandle : undefined,
               ...(avatarUrl !== undefined ? { avatarUrl } : {}),
               ...(avatarKey !== undefined ? { avatarKey } : {}),
+              ...(input.relationship !== undefined ? { relationship: input.relationship } : {}),
+              ...(input.notes !== undefined ? { notes: input.notes } : {}),
+              ...(input.birthday !== undefined ? { birthday: input.birthday } : {}),
             },
             token
           );
@@ -640,10 +714,16 @@ export function usePeople() {
         name: cleanName,
         handle: nextHandle,
         avatar_url: nextAvatarUrl,
+        ...(input.relationship !== undefined
+          ? { relationship: input.relationship?.trim() || null }
+          : {}),
+        ...(input.notes !== undefined ? { notes: input.notes?.trim() || null } : {}),
+        ...(input.birthday !== undefined ? { birthday: input.birthday?.trim() || null } : {}),
         updated_at: new Date().toISOString(),
       };
 
       // Instant 0ms update across list and detail stores
+      _mentionSearchCache.clear();
       _peopleState.mutationVersion += 1;
       _peopleState.pendingMutations += 1;
       _peopleState.people = _peopleState.people.map((p) =>
@@ -678,6 +758,9 @@ export function usePeople() {
               handle: nextHandle,
               ...(avatarUrl !== undefined ? { avatarUrl } : {}),
               ...(avatarKey !== undefined ? { avatarKey } : {}),
+              ...(input.relationship !== undefined ? { relationship: input.relationship } : {}),
+              ...(input.notes !== undefined ? { notes: input.notes } : {}),
+              ...(input.birthday !== undefined ? { birthday: input.birthday } : {}),
             },
             token
           );
@@ -725,6 +808,7 @@ export function usePeople() {
       const backupDetail = _detailStates.get(id);
 
       // Instant 0ms removal
+      _mentionSearchCache.clear();
       _peopleState.mutationVersion += 1;
       _peopleState.pendingMutations += 1;
       _peopleState.people = _peopleState.people.filter((p) => p.id !== id);
@@ -882,5 +966,100 @@ export function usePersonDetails(personId: string) {
     error: snapshot.error,
     setPerson,
     fetchDetails,
+  };
+}
+
+/**
+ * Queries matching people from `/api/people?q=...` ONLY after the user enters
+ * at least one letter/character after `@`, rather than fetching everyone up front.
+ */
+export function useMentionPeopleSearch(
+  query: string,
+  enabled = true,
+  extraFallbackPeople: Person[] = []
+) {
+  const { token } = useAuth();
+  const tokenKey = token ?? null;
+  const trimmed = query.trim();
+  const [remoteState, setRemoteState] = useState<{
+    queryKey: string;
+    results: Person[];
+    searching: boolean;
+  }>({
+    queryKey: '',
+    results: [],
+    searching: false,
+  });
+  const reqSeqRef = useRef(0);
+
+  const normalizedKey = enabled && trimmed.length > 0
+    ? `${getTokenBucket(tokenKey)}::${trimmed.toLowerCase()}`
+    : '';
+
+  useEffect(() => {
+    if (!enabled || !trimmed) {
+      reqSeqRef.current += 1;
+      setRemoteState({ queryKey: '', results: [], searching: false });
+      return;
+    }
+
+    const cacheKey = `${getTokenBucket(tokenKey)}::${trimmed.toLowerCase()}`;
+    const cached = _mentionSearchCache.get(cacheKey);
+    if (cached) {
+      setRemoteState({ queryKey: cacheKey, results: cached, searching: false });
+      return;
+    }
+
+    const reqId = ++reqSeqRef.current;
+    setRemoteState((prev) => ({
+      queryKey: cacheKey,
+      results: prev.queryKey === cacheKey ? prev.results : [],
+      searching: true,
+    }));
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await peopleService.searchPeople(trimmed, 15, token);
+        if (reqSeqRef.current !== reqId) return;
+        const rows = res.success && Array.isArray(res.data?.people) ? res.data.people : [];
+        _mentionSearchCache.set(cacheKey, rows);
+        setRemoteState({ queryKey: cacheKey, results: rows, searching: false });
+      } catch {
+        if (reqSeqRef.current !== reqId) return;
+        setRemoteState((prev) => ({
+          queryKey: cacheKey,
+          results: prev.queryKey === cacheKey ? prev.results : [],
+          searching: false,
+        }));
+      }
+    }, 120);
+
+    return () => clearTimeout(timer);
+  }, [enabled, trimmed, token, tokenKey]);
+
+  if (!enabled || !trimmed) {
+    return { results: [] as Person[], searching: false };
+  }
+
+  // Merge remote search hits with any optimistic temp people or passed fallback matches
+  const localPool =
+    extraFallbackPeople.length > 0
+      ? [..._peopleState.people, ...extraFallbackPeople]
+      : _peopleState.people;
+  const localMatches = filterPeopleForMention(localPool, trimmed);
+  const remoteMatches =
+    remoteState.queryKey === normalizedKey
+      ? remoteState.results
+      : _mentionSearchCache.get(normalizedKey) || [];
+
+  const mergedMap = new Map<string, Person>();
+  for (const p of remoteMatches) mergedMap.set(p.id, p);
+  for (const p of localMatches) {
+    if (!mergedMap.has(p.id)) mergedMap.set(p.id, p);
+  }
+
+  return {
+    results: filterPeopleForMention([...mergedMap.values()], trimmed),
+    searching: remoteState.searching,
   };
 }

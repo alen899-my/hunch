@@ -8,7 +8,7 @@ const handleError = (res, err) => {
 
 const listPeople = async (req, res) => {
   try {
-    const people = await service.listPeople(req.user.id);
+    const people = await service.listPeople(req.user.id, req.query.q, req.query.limit);
     ok(res, { people });
   } catch (err) {
     handleError(res, err);
